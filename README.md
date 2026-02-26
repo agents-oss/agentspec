@@ -219,4 +219,4 @@ TypeScript · pnpm workspaces · Zod · js-yaml · commander · vitest · tsup
 
 ## License
 
-MIT
+Apache 2.0
