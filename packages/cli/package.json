@@ -1,0 +1,31 @@
+{
+  "name": "@agentspec/cli",
+  "version": "0.1.0",
+  "description": "AgentSpec CLI — validate, health, audit, generate, init",
+  "type": "module",
+  "bin": {
+    "agentspec": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@agentspec/sdk": "workspace:*",
+    "chalk": "^5.4.1",
+    "commander": "^12.1.0",
+    "@clack/prompts": "^0.9.1",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

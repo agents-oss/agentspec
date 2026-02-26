@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+message: "If you use AgentSpec in your research, product, or project, please cite it as below."
+type: software
+
+title: "AgentSpec: Universal Agent Manifest System"
+abstract: >
+  AgentSpec is the universal manifest standard for AI agents.
+  A single agent.yaml captures everything: model, memory, tools, MCP servers,
+  guardrails, evaluation, observability, and compliance. The SDK validates
+  manifests, runs runtime health checks, scores compliance against OWASP LLM
+  Top 10, and generates framework code (LangGraph, CrewAI, Mastra, AutoGen)
+  from the same file. Zero control plane — just a file and an SDK.
+
+authors:
+  - family-names: "Kokaina"
+    given-names: "Sallah"
+
+version: "0.1.0"
+date-released: "2026-02-27"
+license: Apache-2.0
+
+repository-code: "https://github.com/agentspec/agentspec"
+url: "https://agentspec.io"
+
+keywords:
+  - ai-agents
+  - agent-manifest
+  - llm
+  - agent-specification
+  - owasp-llm-top10
+  - langchain
+  - langgraph
+  - crewai
+  - mcp
+  - compliance
+  - health-checks

@@ -1,0 +1,279 @@
+apiVersion: agentspec.io/v1
+kind: AgentSpec
+
+metadata:
+  name: budgetbud
+  version: 1.0.0
+  description: "Personal finance AI assistant — tracks expenses, summarizes spending, and provides budget insights"
+  tags: [finance, telegram, personal-assistant]
+  author: "AgentBoot"
+  license: MIT
+
+spec:
+  # ── MODEL ──────────────────────────────────────────────────────────────────
+  model:
+    provider: groq
+    id: llama-3.3-70b-versatile
+    apiKey: $env:GROQ_API_KEY
+    parameters:
+      temperature: 0.3
+      maxTokens: 500
+    fallback:
+      provider: azure
+      id: gpt-4
+      apiKey: $env:AZURE_OPENAI_API_KEY
+      triggerOn: [rate_limit, timeout, error_5xx]
+      maxRetries: 2
+    costControls:
+      maxMonthlyUSD: 200
+      alertAtUSD: 150
+
+  # ── PROMPTS ────────────────────────────────────────────────────────────────
+  prompts:
+    system: $file:../../backend/app/prompts/system_prompt.txt
+    fallback: "I'm experiencing difficulties connecting to my systems. Please try again in a moment."
+    hotReload: true
+    variables:
+      - name: currency
+        value: $env:DEFAULT_CURRENCY
+      - name: current_date
+        value: "$func:now_iso"
+
+  # ── TOOLS ──────────────────────────────────────────────────────────────────
+  tools:
+    - name: create-expense
+      type: function
+      description: "Create a new expense record in the database"
+      module: $file:../../backend/app/tools/tool_implementations.py
+      function: create_expense
+      annotations:
+        readOnlyHint: false
+        destructiveHint: false
+        idempotentHint: false
+
+    - name: get-expenses
+      type: function
+      description: "Retrieve expense records with optional filters"
+      module: $file:../../backend/app/tools/tool_implementations.py
+      function: get_expenses
+      annotations:
+        readOnlyHint: true
+        idempotentHint: true
+
+    - name: get-spending-summary
+      type: function
+      description: "Get spending summary for a time period, grouped by category"
+      module: $file:../../backend/app/tools/tool_implementations.py
+      function: get_spending_summary
+      annotations:
+        readOnlyHint: true
+        idempotentHint: true
+
+    - name: update-expense
+      type: function
+      description: "Update an existing expense record"
+      module: $file:../../backend/app/tools/tool_implementations.py
+      function: update_expense
+      annotations:
+        readOnlyHint: false
+        destructiveHint: false
+
+    - name: delete-expense
+      type: function
+      description: "Delete an expense record"
+      module: $file:../../backend/app/tools/tool_implementations.py
+      function: delete_expense
+      annotations:
+        readOnlyHint: false
+        destructiveHint: true
+
+    - name: get-budget-categories
+      type: function
+      description: "Get all available budget categories"
+      module: $file:../../backend/app/tools/tool_implementations.py
+      function: get_budget_categories
+      annotations:
+        readOnlyHint: true
+        idempotentHint: true
+
+    - name: create-budget-goal
+      type: function
+      description: "Create or update a budget goal for a category"
+      module: $file:../../backend/app/tools/tool_implementations.py
+      function: create_budget_goal
+      annotations:
+        readOnlyHint: false
+        destructiveHint: false
+
+    - name: get-budget-goals
+      type: function
+      description: "Retrieve current budget goals and progress"
+      module: $file:../../backend/app/tools/tool_implementations.py
+      function: get_budget_goals
+      annotations:
+        readOnlyHint: true
+        idempotentHint: true
+
+    - name: get-monthly-report
+      type: function
+      description: "Generate a comprehensive monthly financial report"
+      module: $file:../../backend/app/tools/tool_implementations.py
+      function: get_monthly_report
+      annotations:
+        readOnlyHint: true
+        idempotentHint: true
+
+    - name: search-expenses
+      type: function
+      description: "Search expenses by keyword, amount range, or date range"
+      module: $file:../../backend/app/tools/tool_implementations.py
+      function: search_expenses
+      annotations:
+        readOnlyHint: true
+        idempotentHint: false
+
+  # ── MCP SERVERS ────────────────────────────────────────────────────────────
+  mcp:
+    servers:
+      - name: postgres-db
+        transport: stdio
+        command: npx
+        args: [-y, "@modelcontextprotocol/server-postgres"]
+        env:
+          DATABASE_URL: $env:DATABASE_URL
+        healthCheck:
+          timeoutSeconds: 5
+
+  # ── MEMORY ─────────────────────────────────────────────────────────────────
+  memory:
+    shortTerm:
+      backend: redis
+      maxTurns: 20
+      maxTokens: 8000
+      ttlSeconds: 3600
+      connection: $env:REDIS_URL
+
+    longTerm:
+      backend: postgres
+      connectionString: $env:DATABASE_URL
+      table: agent_sessions
+      ttlDays: 90
+
+    hygiene:
+      piiScrubFields: [account_number, ssn, credit_card, bank_account, routing_number]
+      auditLog: true
+
+  # ── SUB-AGENTS ─────────────────────────────────────────────────────────────
+  subagents:
+    - name: observer
+      ref:
+        agentspec: ./agents/observer.yaml
+      invocation: parallel
+      passContext: true
+
+    - name: reflector
+      ref:
+        agentspec: ./agents/reflector.yaml
+      invocation: sequential
+      passContext: true
+
+  # ── API ────────────────────────────────────────────────────────────────────
+  api:
+    type: rest
+    port: 8000
+    pathPrefix: /api/v1
+    auth:
+      type: jwt
+      jwksUri: $env:JWKS_URI
+    rateLimit:
+      requestsPerMinute: 60
+    streaming: true
+    healthEndpoint: /health
+    metricsEndpoint: /metrics
+
+  # ── GUARDRAILS ─────────────────────────────────────────────────────────────
+  guardrails:
+    input:
+      - type: topic-filter
+        blockedTopics: [illegal_activity, self_harm, violence, explicit_content]
+        action: reject
+        message: "I can only help with personal finance topics. Please ask about budgets, expenses, or financial planning."
+      - type: pii-detector
+        action: scrub
+        fields: [ssn, credit_card, bank_account]
+      - type: prompt-injection
+        action: reject
+        sensitivity: high
+
+    output:
+      - type: hallucination-detector
+        threshold: 0.8
+        action: retry
+        maxRetries: 2
+      - type: toxicity-filter
+        threshold: 0.7
+        action: reject
+      - type: pii-detector
+        action: scrub
+        fields: [ssn, credit_card, bank_account]
+
+  # ── EVALUATION ─────────────────────────────────────────────────────────────
+  evaluation:
+    framework: deepeval
+    datasets:
+      - name: budget-qa
+        path: $file:../../eval/datasets/budget-qa.jsonl
+      - name: expense-tracking
+        path: $file:../../eval/datasets/expense-tracking.jsonl
+    metrics:
+      - faithfulness
+      - answer_relevancy
+      - hallucination
+      - toxicity
+    thresholds:
+      faithfulness: 0.85
+      hallucination: 0.05
+      toxicity: 0.1
+    ciGate: true
+
+  # ── OBSERVABILITY ──────────────────────────────────────────────────────────
+  observability:
+    tracing:
+      backend: langfuse
+      endpoint: $env:LANGFUSE_HOST
+      publicKey: $env:LANGFUSE_PUBLIC_KEY
+      secretKey: $secret:langfuse-secret-key
+      sampleRate: 1.0
+    metrics:
+      backend: opentelemetry
+      endpoint: $env:OTEL_EXPORTER_OTLP_ENDPOINT
+      serviceName: budgetbud
+    logging:
+      level: info
+      structured: true
+      redactFields: [account_number, api_key, password]
+
+  # ── COMPLIANCE ─────────────────────────────────────────────────────────────
+  compliance:
+    packs:
+      - owasp-llm-top10
+      - memory-hygiene
+      - model-resilience
+      - evaluation-coverage
+    auditSchedule: weekly
+
+  # ── RUNTIME REQUIREMENTS ───────────────────────────────────────────────────
+  requires:
+    envVars:
+      - GROQ_API_KEY
+      - DATABASE_URL
+      - REDIS_URL
+      - LANGFUSE_HOST
+      - LANGFUSE_PUBLIC_KEY
+      - DEFAULT_CURRENCY
+    services:
+      - type: postgres
+        connection: $env:DATABASE_URL
+      - type: redis
+        connection: $env:REDIS_URL
+    minimumMemoryMB: 512

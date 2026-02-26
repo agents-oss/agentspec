@@ -1,0 +1,24 @@
+{
+  "name": "agentspec",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Universal Agent Manifest System — spec, SDK, and CLI",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "clean": "pnpm -r clean",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "tsup": "^8.3.5",
+    "vitepress": "^1.6.3"
+  }
+}
