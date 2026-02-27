@@ -37,6 +37,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Build SDK first — CLI and adapter depend on @agentspec/sdk dist types
+      - run: pnpm build
+
       - run: pnpm lint
 
       - run: pnpm typecheck
