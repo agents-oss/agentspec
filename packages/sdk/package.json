@@ -2,6 +2,16 @@
   "name": "@agentspec/sdk",
   "version": "0.1.0",
   "description": "AgentSpec SDK — load, validate, health-check, audit, and generate from agent.yaml",
+  "author": "Sallah Kokaina <sallah.kokaina@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://agentspec.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agents-oss/agentspec.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": { "url": "https://github.com/agents-oss/agentspec/issues" },
+  "keywords": ["ai-agents", "agent-manifest", "llm", "owasp-llm-top10", "langgraph", "mcp", "compliance", "health-checks"],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -19,7 +29,9 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm build"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",

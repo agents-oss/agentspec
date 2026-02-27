@@ -1,0 +1,116 @@
+name: Publish to npm
+
+# This workflow uses npm Trusted Publishing (OIDC provenance).
+# No NPM_TOKEN secret required — authentication happens via GitHub OIDC.
+# See PUBLISHING.md for first-time setup instructions.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write  # Create GitHub releases
+  id-token: write  # Publish with OIDC provenance (no NPM_TOKEN needed)
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm (required for OIDC Trusted Publishing)
+        run: npm install -g npm@latest
+
+      - name: Verify npm version
+        run: |
+          npm --version
+          echo "npm >=9.5 required for OIDC Trusted Publishing"
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - run: pnpm test
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION"
+
+      # pnpm publish (not npm publish) is required here:
+      # pnpm replaces workspace:* with the real version number before publishing.
+      # npm publish from the package directory would leave workspace:* in the tarball.
+      - name: Publish @agentspec/sdk
+        working-directory: packages/sdk
+        run: pnpm publish --no-git-checks --access public --provenance
+
+      - name: Publish @agentspec/adapter-langgraph
+        working-directory: packages/adapter-langgraph
+        run: pnpm publish --no-git-checks --access public --provenance
+
+      - name: Publish @agentspec/cli
+        working-directory: packages/cli
+        run: pnpm publish --no-git-checks --access public --provenance
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" \
+            --title "AgentSpec v${{ steps.version.outputs.version }}" \
+            --notes "## AgentSpec v${{ steps.version.outputs.version }}
+
+          ### Published Packages
+
+          - \`@agentspec/sdk@${{ steps.version.outputs.version }}\`
+          - \`@agentspec/adapter-langgraph@${{ steps.version.outputs.version }}\`
+          - \`@agentspec/cli@${{ steps.version.outputs.version }}\`
+
+          ### Installation
+
+          \`\`\`bash
+          npm install @agentspec/sdk
+          npm install @agentspec/adapter-langgraph
+          npm install -g @agentspec/cli
+          \`\`\`
+
+          See [CHANGELOG.md](./CHANGELOG.md) for detailed changes."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Job summary
+        run: |
+          echo "## Published to npm" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Packages:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`@agentspec/sdk@${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`@agentspec/adapter-langgraph@${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`@agentspec/cli@${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY

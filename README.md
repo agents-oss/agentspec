@@ -1,5 +1,9 @@
 # AgentSpec
 
+[![npm](https://img.shields.io/npm/v/@agentspec/sdk)](https://www.npmjs.com/package/@agentspec/sdk)
+[![CI](https://github.com/agents-oss/agentspec/actions/workflows/ci.yml/badge.svg)](https://github.com/agents-oss/agentspec/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 **Universal Agent Manifest System** — define, validate, health-check, audit, and generate any AI agent from a single `agent.yaml` file.
 
 ```bash

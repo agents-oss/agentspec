@@ -2,7 +2,7 @@
 # Usage: make <target>
 
 .DEFAULT_GOAL := help
-.PHONY: help install build test lint typecheck clean docs docs-build docs-preview
+.PHONY: help install build test lint typecheck clean schema docs docs-build docs-preview
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 BOLD  := \033[1m
@@ -28,6 +28,7 @@ help:
 	@printf "    $(GREEN)build-cli$(RESET)      Build @agentspec/cli only\n"
 	@printf "    $(GREEN)test-sdk$(RESET)       Test @agentspec/sdk only\n"
 	@printf "    $(GREEN)test-cli$(RESET)       Test @agentspec/cli only\n"
+	@printf "    $(GREEN)schema$(RESET)         Generate schemas/v1/agent.schema.json\n"
 	@echo ""
 	@printf "  $(BOLD)Docs$(RESET)\n"
 	@printf "    $(GREEN)docs$(RESET)           Start the VitePress dev server (hot-reload)\n"
@@ -69,6 +70,10 @@ typecheck:
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
 	pnpm -r clean
+
+# ── Schema export ─────────────────────────────────────────────────────────────
+schema:
+	pnpm schema:export
 
 # ── Docs (VitePress) ──────────────────────────────────────────────────────────
 # Ensure VitePress is available, then serve / build the docs/ folder.

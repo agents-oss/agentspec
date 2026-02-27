@@ -2,6 +2,16 @@
   "name": "@agentspec/cli",
   "version": "0.1.0",
   "description": "AgentSpec CLI — validate, health, audit, generate, init",
+  "author": "Sallah Kokaina <sallah.kokaina@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://agentspec.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agents-oss/agentspec.git",
+    "directory": "packages/cli"
+  },
+  "bugs": { "url": "https://github.com/agents-oss/agentspec/issues" },
+  "keywords": ["ai-agents", "agent-manifest", "llm", "cli", "agentspec"],
   "type": "module",
   "bin": {
     "agentspec": "./dist/cli.js"
@@ -13,7 +23,9 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm build"
   },
   "dependencies": {
     "@agentspec/sdk": "workspace:*",
@@ -23,8 +35,11 @@
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.17.0",
+    "execa": "^9.5.2",
     "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }
