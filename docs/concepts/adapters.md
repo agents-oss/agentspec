@@ -87,7 +87,7 @@ getAdapter('langgraph')     // => FrameworkAdapter | undefined
 
 | Package | Framework | Language | Status |
 |---------|-----------|----------|--------|
-| `@agentspec/adapter-langgraph` | [LangGraph](./langgraph.md) | Python | Available |
+| `@agentspec/adapter-langgraph` | [LangGraph](../adapters/langgraph.md) | Python | Available |
 | `@agentspec/adapter-crewai` | CrewAI | Python | Planned |
 | `@agentspec/adapter-mastra` | Mastra | TypeScript | Planned |
 | `@agentspec/adapter-autogen` | AutoGen | Python | Planned |
@@ -310,4 +310,4 @@ Always generate guardrails in a separate `guardrails.py` file with TODO comments
 - [LangGraph adapter](../adapters/langgraph.md) — full generated file reference and manifest mapping
 - [The agent.yaml manifest](./manifest.md) — manifest structure and reference syntax
 - [agentspec generate CLI reference](../reference/cli.md)
-- [packages/sdk/CLAUDE.md](../../packages/sdk/CLAUDE.md) — detailed adapter generation guide for agentic IDEs
+- [packages/sdk/CLAUDE.md](https://github.com/agents-oss/agentspec/blob/main/packages/sdk/CLAUDE.md) — detailed adapter generation guide for agentic IDEs

@@ -985,5 +985,5 @@ spec:
 
 - [The agent.yaml Manifest](../concepts/manifest.md) — conceptual overview and reference syntax
 - [Compliance Packs](../concepts/compliance.md) — scoring, rule IDs, and suppression workflow
-- [Health Checks Reference](./health-checks.md) — all check categories and their outputs
+- [Health Checks](../concepts/health-checks.md) — all check categories and their outputs
 - [CLI Reference](./cli.md) — `validate`, `health`, `audit`, `generate`, `export`

@@ -5,8 +5,11 @@ export default defineConfig({
   title: 'AgentSpec',
   description: 'Universal Agent Manifest System',
 
-  base: '/',
+  // /agentspec/ = default GitHub Pages URL (agents-oss.github.io/agentspec)
+  // Change to '/' once a custom domain (agentspec.io) is configured in repo settings
+  base: '/agentspec/',
   cleanUrls: true,
+  srcExclude: ['**/CLAUDE.md'],
 
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
@@ -15,7 +18,7 @@ export default defineConfig({
       { text: 'Quick Start', link: '/quick-start' },
       {
         text: 'GitHub',
-        link: 'https://github.com/agentspec/agentspec',
+        link: 'https://github.com/agents-oss/agentspec',
         target: '_blank',
         rel: 'noopener noreferrer',
       },
@@ -40,6 +43,10 @@ export default defineConfig({
       {
         text: 'Guides',
         items: [
+          { text: 'Add Tools', link: '/guides/add-tools' },
+          { text: 'Add Memory', link: '/guides/add-memory' },
+          { text: 'Add Guardrails', link: '/guides/add-guardrails' },
+          { text: 'CI Integration', link: '/guides/ci-integration' },
           { text: 'Migrate an Existing Agent', link: '/guides/migrate-existing-agent' },
           { text: 'Migrate OpenAGI', link: '/guides/migrate-openagi' },
           { text: 'Migrate SuperAgent', link: '/guides/migrate-superagent' },
@@ -65,17 +72,17 @@ export default defineConfig({
     ],
 
     editLink: {
-      pattern: 'https://github.com/agentspec/agentspec/edit/main/docs/:path',
+      pattern: 'https://github.com/agents-oss/agentspec/edit/main/docs/:path',
       text: 'Edit this page on GitHub',
     },
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/agentspec/agentspec' },
+      { icon: 'github', link: 'https://github.com/agents-oss/agentspec' },
     ],
 
     footer: {
-      message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2024-present AgentSpec Contributors',
+      message: 'Released under the Apache 2.0 License.',
+      copyright: 'Copyright © 2025-present AgentSpec Contributors',
     },
   },
 })
