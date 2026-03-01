@@ -6,6 +6,8 @@ import { registerInitCommand } from './commands/init.js'
 import { registerGenerateCommand } from './commands/generate.js'
 import { registerExportCommand } from './commands/export.js'
 import { registerMigrateCommand } from './commands/migrate.js'
+import { registerScanCommand } from './commands/scan.js'
+import { registerDiffCommand } from './commands/diff.js'
 
 const program = new Command()
 
@@ -21,5 +23,7 @@ registerInitCommand(program)
 registerGenerateCommand(program)
 registerExportCommand(program)
 registerMigrateCommand(program)
+registerScanCommand(program)
+registerDiffCommand(program)
 
 program.parse(process.argv)

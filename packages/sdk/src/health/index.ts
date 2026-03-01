@@ -6,6 +6,7 @@ import { runModelChecks } from './checks/model.check.js'
 import { runMcpChecks } from './checks/mcp.check.js'
 import { runMemoryChecks } from './checks/memory.check.js'
 import { runSecretChecks } from './checks/secret.check.js'
+import { runServiceChecks } from './checks/service.check.js'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,8 @@ export interface HealthCheck {
     | 'memory'
     | 'subagent'
     | 'eval'
+    | 'service'   // spec.requires.services TCP connectivity
+    | 'tool'      // registered tool handler availability (agent-side)
   status: CheckStatus
   severity: CheckSeverity
   latencyMs?: number
@@ -52,6 +55,8 @@ export interface HealthCheckOptions {
   checkMcp?: boolean
   /** Run memory backend checks. Default: true */
   checkMemory?: boolean
+  /** Run spec.requires.services TCP connectivity checks. Default: true */
+  checkServices?: boolean
   /** Override base directory for $file resolution */
   baseDir?: string
   /** Raw parsed YAML object (for $env/$file ref collection) */
@@ -84,7 +89,7 @@ export async function runHealthCheck(
   }
 
   // 3. Model endpoint checks
-  if (opts.checkModel !== false) {
+  if (opts.checkModel !== false && manifest.spec.model) {
     const modelChecks = await runModelChecks(manifest.spec.model)
     checks.push(...modelChecks)
   }
@@ -101,7 +106,13 @@ export async function runHealthCheck(
     checks.push(...memChecks)
   }
 
-  // 6. Sub-agent local file checks
+  // 6. Service connectivity checks (spec.requires.services)
+  if (opts.checkServices !== false && manifest.spec.requires?.services?.length) {
+    const svcChecks = await runServiceChecks(manifest.spec.requires.services)
+    checks.push(...svcChecks)
+  }
+
+  // 7. Sub-agent local file checks
   if (manifest.spec.subagents) {
     for (const sub of manifest.spec.subagents) {
       const ref = sub.ref
@@ -138,7 +149,7 @@ export async function runHealthCheck(
     }
   }
 
-  // 7. Eval dataset file checks
+  // 8. Eval dataset file checks
   if (manifest.spec.evaluation?.datasets && opts.baseDir) {
     for (const dataset of manifest.spec.evaluation.datasets) {
       const path = dataset.path
@@ -191,12 +202,54 @@ export async function runHealthCheck(
 }
 
 async function checkA2aEndpoint(name: string, url: string): Promise<HealthCheck> {
+  // Validate URL scheme — only http/https permitted (prevents file://, javascript:, etc.)
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return {
+      id: `subagent:${name}`,
+      category: 'subagent',
+      status: 'fail',
+      severity: 'warning',
+      message: `A2A endpoint for ${name} has an invalid URL`,
+      remediation: `Set ref.a2a.url to a valid http:// or https:// URL`,
+    }
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      id: `subagent:${name}`,
+      category: 'subagent',
+      status: 'fail',
+      severity: 'warning',
+      message: `A2A endpoint for ${name} uses disallowed scheme "${parsed.protocol}"`,
+      remediation: `Use an http:// or https:// URL for ref.a2a.url`,
+    }
+  }
+  // Reject loopback and link-local addresses (SSRF guard)
+  const host = parsed.hostname.replace(/^\[(.+)\]$/, '$1') // unwrap IPv6 brackets
+  if (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.startsWith('169.254.') || // link-local (AWS metadata, etc.)
+    host.startsWith('fe80:')
+  ) {
+    return {
+      id: `subagent:${name}`,
+      category: 'subagent',
+      status: 'skip',
+      severity: 'warning',
+      message: `Skipping A2A check for ${name} — loopback/link-local address not checked`,
+    }
+  }
+
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5000)
   const start = Date.now()
 
   try {
-    const res = await fetch(url, { signal: controller.signal })
+    await fetch(url, { signal: controller.signal })
     return {
       id: `subagent:${name}`,
       category: 'subagent',
@@ -215,7 +268,7 @@ async function checkA2aEndpoint(name: string, url: string): Promise<HealthCheck>
       message: isTimeout
         ? `A2A endpoint for ${name} timed out`
         : `A2A endpoint for ${name} unreachable: ${String(err)}`,
-      remediation: `Check that the A2A endpoint is reachable at ${url}`,
+      remediation: `Check that the A2A endpoint is reachable`,
     }
   } finally {
     clearTimeout(timeout)
