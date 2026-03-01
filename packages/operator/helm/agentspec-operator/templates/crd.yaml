@@ -42,8 +42,8 @@ spec:
           jsonPath: .status.score
         - name: Model
           type: string
-          description: "Model reachability: pass / fail / skip / unknown"
-          jsonPath: .status.model.status
+          description: "Model identifier: provider/model-id"
+          jsonPath: .status.model.id
         - name: Violations
           type: integer
           description: "Open compliance violations"

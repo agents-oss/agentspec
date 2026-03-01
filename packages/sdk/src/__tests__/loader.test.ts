@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { resolve } from 'node:path'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import {
   loadManifest,
   tryLoadManifest,
@@ -15,12 +16,12 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 const repoRoot = resolve(__dirname, '../../../..')
-const exampleManifest = resolve(repoRoot, 'examples/budgetbud/agent.yaml')
+const exampleManifest = resolve(repoRoot, 'examples/gymcoach/agent.yaml')
 
 // ── loadManifest ───────────────────────────────────────────────────────────────
 
 describe('loadManifest()', () => {
-  it('loads and validates the budgetbud example manifest', () => {
+  it('loads and validates the gymcoach example manifest', () => {
     const result = loadManifest(exampleManifest)
     expect(result.manifest.apiVersion).toBe('agentspec.io/v1')
     expect(result.manifest.kind).toBe('AgentSpec')
@@ -44,6 +45,53 @@ describe('loadManifest()', () => {
   it('throws with the missing file path in the error message', () => {
     const missingPath = '/totally/missing/agent.yaml'
     expect(() => loadManifest(missingPath)).toThrow(missingPath)
+  })
+
+  it('throws "Invalid YAML" when the file contains invalid YAML syntax', () => {
+    const TEST_TMP = resolve(import.meta.dirname ?? process.cwd(), '..', '..', '.test-tmp')
+    const tmpDir = join(TEST_TMP, `yaml-err-${Date.now()}`)
+    mkdirSync(tmpDir, { recursive: true })
+    const badYaml = join(tmpDir, 'agent.yaml')
+    // YAML with a tab character at start of line (invalid YAML indentation)
+    writeFileSync(badYaml, 'apiVersion: agentspec.io/v1\n\t: bad indentation')
+    try {
+      expect(() => loadManifest(badYaml)).toThrow(/Invalid YAML/)
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves $-references when resolve: true is set', () => {
+    const TEST_TMP = resolve(import.meta.dirname ?? process.cwd(), '..', '..', '.test-tmp')
+    const tmpDir = join(TEST_TMP, `resolve-opt-${Date.now()}`)
+    mkdirSync(tmpDir, { recursive: true })
+    const manifestPath = join(tmpDir, 'agent.yaml')
+
+    // A minimal manifest with NO $env: refs — all literal values
+    writeFileSync(manifestPath, [
+      'apiVersion: agentspec.io/v1',
+      'kind: AgentSpec',
+      'metadata:',
+      '  name: literal-agent',
+      '  version: 1.0.0',
+      '  description: Test agent with literal values',
+      'spec:',
+      '  model:',
+      '    provider: groq',
+      '    id: llama-3.3-70b-versatile',
+      '    apiKey: literal-api-key-value',
+      '  prompts:',
+      '    system: You are a helpful assistant.',
+      '    hotReload: false',
+    ].join('\n'))
+
+    try {
+      const result = loadManifest(manifestPath, { resolve: true })
+      expect(result.manifest.metadata.name).toBe('literal-agent')
+      expect(result.manifest.spec.model.apiKey).toBe('literal-api-key-value')
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
   })
 })
 

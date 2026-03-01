@@ -91,7 +91,7 @@ fi
 
 # ── 4. Demo agents deployed ───────────────────────────────────────────────────
 echo -e "\n${BOLD}[4] Demo agents (namespace: $DEMO_NS)${RESET}"
-DEMO_AGENTS=("gymcoach" "trading-bot" "voice-assistant")
+DEMO_AGENTS=("gymcoach" "trading-bot" "voice-assistant" "fitness-tracker" "research-agent")
 
 if kubectl get namespace "$DEMO_NS" &>/dev/null; then
   pass "Namespace $DEMO_NS exists"
@@ -173,11 +173,16 @@ check_field() {
   fi
 }
 
-check_field "gymcoach"       "phase"   "Healthy"
-check_field "gymcoach"       "grade"   "A"
-check_field "trading-bot"    "phase"   "Degraded"
+check_field "gymcoach"       "phase"        "Healthy"
+check_field "gymcoach"       "grade"        "A"
+check_field "trading-bot"    "phase"        "Degraded"
 check_field "trading-bot"    "model.status" "fail"
-check_field "voice-assistant" "grade"  "F"
+check_field "voice-assistant" "grade"       "C"
+check_field "fitness-tracker" "phase"       "Healthy"
+check_field "fitness-tracker" "grade"       "A"
+check_field "research-agent"  "phase"       "Unhealthy"
+check_field "research-agent"  "grade"       "F"
+check_field "research-agent"  "source"      "agent-sdk"
 
 # ── 8. Operator logs (last 20 lines) ─────────────────────────────────────────
 echo -e "\n${BOLD}[8] Operator log tail${RESET}"

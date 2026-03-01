@@ -33,7 +33,7 @@ agentspec/
 │   └── adapter-langgraph/      # @agentspec/adapter-langgraph
 │       └── src/generators/     # agent.py, requirements.txt, guardrails.py
 ├── schemas/v1/                 # agent.schema.json (IDE autocomplete)
-├── examples/budgetbud/         # BudgetBud migration example
+├── examples/gymcoach/          # GymCoach migration example
 ├── docs/                       # Documentation site
 └── CLAUDE.md                   # This file
 ```
@@ -79,6 +79,30 @@ No implicit global state. No singletons. No hidden configuration.
 | `$secret:name` | Secret manager (Vault/AWS/GCP/Azure) |
 | `$file:path` | File relative to agent.yaml |
 | `$func:now_iso` | Built-in function |
+
+### 7. agent.yaml is the spec; the SDK makes it live-verifiable (core principle)
+
+The `agent.yaml` is the **single source of truth** for everything an agent declares:
+model, tools, services, memory, guardrails, evaluation, subagents.
+
+Agents that integrate `@agentspec/sdk` expose a standard introspection endpoint:
+
+  GET /agentspec/health  →  HealthReport (live runtime state)
+
+The **sidecar** discovers this endpoint and bridges the gap between the declared spec and
+runtime reality across all diagnostic endpoints:
+
+  /health/ready  — manifest + live checks merged
+  /explore       — runtime capabilities (live tool/service/model status)
+  /gap           — manifest declarations vs runtime reality (the delta)
+
+Agents that do NOT integrate the SDK continue to work: the sidecar falls back to
+static manifest analysis. Live SDK data is always preferred when available.
+
+**Core invariant**: a user should be able to answer these questions from the sidecar alone:
+- Is the agent healthy? (all declared dependencies reachable, model key valid)
+- What can it do? (declared tools + their live registration status)
+- What is wrong? (gap between spec and runtime, with remediation)
 
 ---
 
@@ -127,6 +151,22 @@ Checks live in `packages/sdk/src/health/checks/`:
 - `model.check.ts` — model API HTTP reachability
 - `mcp.check.ts` — MCP server connectivity
 - `memory.check.ts` — Redis/Postgres TCP connectivity
+- `service.check.ts` — `spec.requires.services` TCP port reachability (no driver deps, uses `net.createConnection`)
+
+The `HealthCheck.category` union type (`packages/sdk/src/health/index.ts`) supports:
+
+| Category | Source | Description |
+|---|---|---|
+| `env` | SDK | Env var presence checks |
+| `file` | SDK | File ref resolution checks |
+| `model` | SDK | Model API HTTP reachability |
+| `model-fallback` | SDK | Fallback model reachability |
+| `mcp` | SDK | MCP server connectivity |
+| `memory` | SDK | Memory backend TCP checks |
+| `subagent` | SDK | Sub-agent file/A2A checks |
+| `eval` | SDK | Eval dataset file checks |
+| `service` | SDK | `spec.requires.services` TCP connectivity |
+| `tool` | Reporter | Registered tool handler availability (agent-side) |
 
 To add a new check category:
 1. Create `packages/sdk/src/health/checks/<category>.check.ts`
@@ -174,7 +214,7 @@ To add a new check category:
 | `packages/sdk/src/generate/index.ts` | Adapter registry |
 | `packages/adapter-langgraph/src/index.ts` | LangGraph adapter (auto-registers) |
 | `packages/cli/src/cli.ts` | CLI entrypoint |
-| `examples/budgetbud/agent.yaml` | Full BudgetBud manifest example |
+| `examples/gymcoach/agent.yaml` | Full GymCoach manifest example |
 
 ---
 

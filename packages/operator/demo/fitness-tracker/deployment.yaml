@@ -1,0 +1,268 @@
+---
+# ConfigMap: OPA Rego policy generated from fitness-tracker agent.yaml declarations
+# Run: agentspec generate-policy agent.yaml --out /tmp/policy
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fitness-tracker-opa-policy
+  namespace: demo
+  labels:
+    agentspec.io/agent: fitness-tracker
+data:
+  policy.rego: |
+    package agentspec.agent.fitness_tracker
+
+    import rego.v1
+
+    default allow := false
+
+    allow if {
+        count(deny) == 0
+    }
+
+    # ── Input guardrail enforcement ───────────────────────────────────────────────
+
+    deny contains "pii_detector_not_invoked" if {
+        input.request_type == "llm_call"
+        not "pii-detector" in input.guardrails_invoked
+    }
+
+    # ── Output guardrail enforcement ──────────────────────────────────────────────
+
+    deny contains "toxicity_threshold_exceeded" if {
+        input.request_type == "llm_call"
+        input.toxicity_score >= data.toxicityThreshold
+    }
+  data.json: |
+    {
+      "toxicityThreshold": 0.7,
+      "destructiveTools": []
+    }
+---
+# ConfigMap: agent.yaml manifest mounted into both containers
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fitness-tracker-agent-yaml
+  namespace: demo
+  labels:
+    agentspec.io/agent: fitness-tracker
+data:
+  agent.yaml: |
+    apiVersion: agentspec.io/v1
+    kind: AgentSpec
+    metadata:
+      name: fitness-tracker
+      version: "1.2.0"
+      description: "LangGraph fitness coaching agent with full SDK integration — grade A gold standard"
+    spec:
+      model:
+        provider: groq
+        id: llama-3.3-70b-versatile
+        apiKey: $env:GROQ_API_KEY
+      prompts:
+        system: "You are an expert fitness coach. Create personalised workout plans, track sessions, and monitor progress."
+      tools:
+        - name: plan-workout
+          type: function
+          description: "Generate a personalised workout plan based on user goals and fitness level"
+        - name: log-session
+          type: function
+          description: "Record a completed workout session with exercises, sets, reps, and weight"
+        - name: get-progress
+          type: function
+          description: "Retrieve user progress metrics, streaks, and performance trends"
+      guardrails:
+        input:
+          - type: pii-detector
+            action: scrub
+            fields: [name, email, phone, address]
+        output:
+          - type: toxicity-filter
+            action: warn
+            threshold: 0.7
+      # source=agent-sdk: mock server serves /agentspec/health with live check data
+---
+# Deployment: agent container (mock SDK server) + agentspec-sidecar
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fitness-tracker
+  namespace: demo
+  labels:
+    agentspec.io/agent: fitness-tracker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fitness-tracker
+  template:
+    metadata:
+      labels:
+        app: fitness-tracker
+        agentspec.io/agent: fitness-tracker
+    spec:
+      # MED-2: pod-level security context — all containers inherit runAsNonRoot
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        # ── Agent application container (simulates SDK-integrated LangGraph agent) ──
+        - name: fitness-tracker
+          image: python:3.12.9-slim   # MED-1: pinned patch version, not :latest
+          # Mock server simulating a fully-integrated agentspec SDK agent.
+          # Serves all four endpoints expected by the sidecar in agent-sdk mode:
+          #   /agentspec/health — live HealthReport: 5 checks, all pass → source=agent-sdk
+          #   /health           — {"status":"ok"} → removes healthcheckable (-20) violation
+          #   /capabilities     — tools JSON       → removes discoverable (-10) violation
+          # Combined with guardrails in the manifest → zero violations → score=100 / grade=A
+          command:
+            - python3
+            - -c
+            - |
+              import json, http.server, datetime
+              TOOLS = [
+                {"name": "plan-workout", "description": "Generate a personalised workout plan"},
+                {"name": "log-session",  "description": "Record a completed workout session"},
+                {"name": "get-progress", "description": "Retrieve user progress metrics"},
+              ]
+              def health_report():
+                  return {
+                      "agentName": "fitness-tracker",
+                      "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                      "status": "healthy",
+                      "summary": {"passed": 5, "failed": 0, "warnings": 0, "skipped": 0},
+                      "checks": [
+                          {"id": "env:GROQ_API_KEY",              "category": "env",   "status": "pass", "severity": "error", "message": "GROQ_API_KEY is set"},
+                          {"id": "model:groq/llama-3.3-70b-versatile", "category": "model", "status": "pass", "severity": "error", "latencyMs": 88},
+                          {"id": "tool:plan-workout",              "category": "tool",  "status": "pass", "severity": "info"},
+                          {"id": "tool:log-session",               "category": "tool",  "status": "pass", "severity": "info"},
+                          {"id": "tool:get-progress",              "category": "tool",  "status": "pass", "severity": "info"},
+                      ],
+                  }
+              class H(http.server.BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      if "agentspec/health" in self.path:
+                          b = json.dumps(health_report()).encode()
+                      elif "cap" in self.path:
+                          b = json.dumps({"tools": TOOLS}).encode()
+                      else:
+                          b = json.dumps({"status": "ok"}).encode()
+                      self.send_response(200)
+                      self.send_header("Content-Type", "application/json")
+                      self.send_header("Content-Length", str(len(b)))
+                      self.end_headers()
+                      self.wfile.write(b)
+                  def log_message(self, *a): pass
+              http.server.HTTPServer(("", 8080), H).serve_forever()
+          env:
+            # GROQ_API_KEY set to demo value — agent reports it as passing in /agentspec/health
+            - name: GROQ_API_KEY
+              value: "sk-agentspec-demo-groq"
+          ports:
+            - containerPort: 8080
+              name: http
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+        # ── agentspec-sidecar (control plane on port 4001) ───────────────────
+        - name: sidecar
+          image: agentspec/sidecar:local   # MED-1: pinned, not :latest
+          env:
+            - name: UPSTREAM_URL
+              value: "http://localhost:8080"
+            - name: MANIFEST_PATH
+              value: "/config/agent.yaml"
+            - name: OPA_URL
+              value: "http://localhost:8181"
+            # GROQ_API_KEY set so sidecar static env check passes
+            - name: GROQ_API_KEY
+              value: "sk-agentspec-demo-groq"
+          ports:
+            - containerPort: 4001
+              name: control
+          volumeMounts:
+            - name: agent-manifest
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/live
+              port: control
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+        # ── OPA policy enforcement sidecar (port 8181) ───────────────────────
+        - name: opa
+          image: openpolicyagent/opa:0.70.0-static   # pinned version, not :latest
+          args:
+            - run
+            - --server
+            - --addr=:8181
+            - --log-level=error
+            - /policies/policy.rego
+            - /policies/data.json
+            - --log-level
+            - error
+          ports:
+            - containerPort: 8181
+              name: opa
+          volumeMounts:
+            - name: opa-policy
+              mountPath: /policies
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: opa
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+
+      volumes:
+        - name: agent-manifest
+          configMap:
+            name: fitness-tracker-agent-yaml
+        - name: opa-policy
+          configMap:
+            name: fitness-tracker-opa-policy

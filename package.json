@@ -17,10 +17,11 @@
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8",
-    "tsup": "^8.3.5",
-    "vitepress": "^1.6.3"
+    "vitepress": "^1.6.3",
+    "vitest": "^2.1.8"
   }
 }

@@ -116,7 +116,7 @@ npm view @agentspec/adapter-langgraph
 npm view @agentspec/cli
 
 # Test installation
-npx @agentspec/cli@latest validate examples/budgetbud/agent.yaml
+npx @agentspec/cli@latest validate examples/gymcoach/agent.yaml
 ```
 
 ---

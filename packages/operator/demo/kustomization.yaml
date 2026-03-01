@@ -3,15 +3,25 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
-  # gymcoach: A-grade (fully compliant)
+  # gymcoach: A-grade, manifest-static (fully compliant)
   - gymcoach/deployment.yaml
   - gymcoach/service.yaml
   - gymcoach/agentobservation.yaml
-  # trading-bot: D-grade (missing guardrails, model key unset)
+  # trading-bot: D-grade, manifest-static (missing guardrails, service unreachable)
   - trading-bot/deployment.yaml
   - trading-bot/service.yaml
   - trading-bot/agentobservation.yaml
-  # voice-assistant: F-grade (minimal, no compliance)
+  # voice-assistant: C-grade, manifest-static (no /health, no /capabilities, no guardrails)
+  # → A-grade after `make demo-patch` (patches add guardrails + HTTP server + env key)
   - voice-assistant/deployment.yaml
   - voice-assistant/service.yaml
   - voice-assistant/agentobservation.yaml
+  # fitness-tracker: A-grade, agent-sdk (fully integrated SDK — gold standard)
+  - fitness-tracker/deployment.yaml
+  - fitness-tracker/service.yaml
+  - fitness-tracker/agentobservation.yaml
+  # research-agent: C-grade, manifest-static (no /health, no /capabilities, no guardrails)
+  # → A-grade after `make demo-patch` (adds HTTP server + guardrails + OPENAI_API_KEY)
+  - research-agent/deployment.yaml
+  - research-agent/service.yaml
+  - research-agent/agentobservation.yaml

@@ -1,0 +1,14 @@
+apiVersion: agentspec.io/v1
+kind: AgentObservation
+metadata:
+  name: fitness-tracker
+  namespace: demo
+  labels:
+    agentspec.io/agent: fitness-tracker
+    agentspec.io/profile: compliant   # A-grade: full guardrails, all checks pass, agent-sdk mode
+spec:
+  agentRef:
+    name: fitness-tracker
+  sidecarServiceName: fitness-tracker-sidecar
+  sidecarPort: 4001
+  checkInterval: 30

@@ -45,19 +45,19 @@ Required. Identifies the agent and its version.
 
 | Field | Type | Required | Constraints | Example |
 |-------|------|----------|-------------|---------|
-| `name` | string | Yes | Lowercase slug `/^[a-z0-9-]+$/` | `budget-bud` |
+| `name` | string | Yes | Lowercase slug `/^[a-z0-9-]+$/` | `gymcoach` |
 | `version` | string | Yes | Semver `/^\d+\.\d+\.\d+$/` | `1.0.0` |
-| `description` | string | Yes | Min length 1 | `"Personal finance assistant"` |
-| `tags` | string[] | No | — | `[finance, telegram]` |
+| `description` | string | Yes | Min length 1 | `"AI fitness coaching assistant"` |
+| `tags` | string[] | No | — | `[fitness, coaching]` |
 | `author` | string | No | — | `"Acme Corp"` |
 | `license` | string | No | — | `MIT` |
 
 ```yaml
 metadata:
-  name: budget-bud
+  name: gymcoach
   version: 1.0.0
-  description: "Personal finance AI assistant"
-  tags: [finance, telegram]
+  description: "AI fitness coaching assistant"
+  tags: [fitness, coaching]
   author: "Acme Corp"
   license: MIT
 ```
@@ -157,8 +157,8 @@ spec:
     variables:
       - name: current_date
         value: "$func:now_iso"
-      - name: currency
-        value: $env:DEFAULT_CURRENCY
+      - name: unit_system
+        value: $env:UNIT_SYSTEM
 ```
 
 ---
@@ -169,11 +169,11 @@ Optional. List of function tools the agent can call.
 
 | Field | Type | Required | Constraints | Example |
 |-------|------|----------|-------------|---------|
-| `name` | string | Yes | Lowercase slug `/^[a-z0-9-]+$/` | `get-expenses` |
+| `name` | string | Yes | Lowercase slug `/^[a-z0-9-]+$/` | `log-workout` |
 | `type` | enum | Yes | `function`, `mcp`, `builtin` | `function` |
-| `description` | string | Yes | — | `"Retrieve expense records"` |
+| `description` | string | Yes | — | `"Retrieve training sessions"` |
 | `module` | string | No | Typically a `$file:` reference | `$file:tools/impl.py` |
-| `function` | string | No | — | `get_expenses` |
+| `function` | string | No | — | `log_workout` |
 | `annotations` | object | No | See below | — |
 
 ### `spec.tools[].annotations`
@@ -190,11 +190,11 @@ MCP-compatible hints about tool behaviour. Adapters use these to generate guardr
 ```yaml
 spec:
   tools:
-    - name: delete-expense
+    - name: delete-workout
       type: function
-      description: "Delete an expense record"
+      description: "Delete a logged training session"
       module: $file:tools/impl.py
-      function: delete_expense
+      function: delete_workout
       annotations:
         readOnlyHint: false
         destructiveHint: true
@@ -277,7 +277,7 @@ Optional. Short-term conversation memory, long-term persistence, and vector sear
 | `apiKey` | refOrLiteral | No | — | `$env:PINECONE_API_KEY` |
 | `dimension` | integer | Yes | Min 1 | `1536` |
 | `topK` | integer | No | Min 1 | `5` |
-| `namespace` | string | No | — | `budgetbud-docs` |
+| `namespace` | string | No | — | `gymcoach-docs` |
 
 ### `spec.memory.hygiene`
 
@@ -442,13 +442,13 @@ Optional. Declares AgentSkill capabilities the agent exposes (used in A2A AgentC
 
 | Field | Type | Required | Example |
 |-------|------|----------|---------|
-| `id` | string | Yes | `expense-tracking` |
+| `id` | string | Yes | `workout-tracking` |
 | `version` | string | No | `1.0.0` |
 
 ```yaml
 spec:
   skills:
-    - id: expense-tracking
+    - id: workout-tracking
       version: 1.0.0
     - id: budget-reporting
 ```
@@ -472,7 +472,7 @@ Blocks requests about specified topics.
 | `type` | `"topic-filter"` | Yes | — | `topic-filter` |
 | `blockedTopics` | string[] | Yes | — | `[illegal_activity, violence]` |
 | `action` | enum | Yes | `reject`, `warn`, `log` | `reject` |
-| `message` | string | No | — | `"I can only help with finance."` |
+| `message` | string | No | — | `"I can only help with fitness topics."` |
 
 #### `type: pii-detector`
 
@@ -552,7 +552,7 @@ spec:
       - type: topic-filter
         blockedTopics: [illegal_activity, violence]
         action: reject
-        message: "I can only help with finance topics."
+        message: "I can only help with fitness and training topics."
       - type: pii-detector
         action: scrub
         fields: [ssn, credit_card]
@@ -685,7 +685,7 @@ Optional. Tracing, metrics, and structured logging.
 |-------|------|----------|-------------|---------|
 | `backend` | enum | Yes | `opentelemetry`, `prometheus`, `datadog` | `opentelemetry` |
 | `endpoint` | refOrLiteral | No | — | `$env:OTEL_EXPORTER_OTLP_ENDPOINT` |
-| `serviceName` | string | No | — | `budget-bud` |
+| `serviceName` | string | No | — | `gymcoach` |
 
 ### `spec.observability.logging`
 
@@ -707,7 +707,7 @@ spec:
     metrics:
       backend: opentelemetry
       endpoint: $env:OTEL_EXPORTER_OTLP_ENDPOINT
-      serviceName: budget-bud
+      serviceName: gymcoach
     logging:
       level: info
       structured: true
@@ -803,17 +803,17 @@ spec:
 
 ## Full Manifest Example
 
-The following is the complete BudgetBud manifest, which exercises every major section:
+The following is the complete GymCoach manifest, which exercises every major section:
 
 ```yaml
 apiVersion: agentspec.io/v1
 kind: AgentSpec
 
 metadata:
-  name: budget-bud
+  name: gymcoach
   version: 1.0.0
-  description: "Personal finance AI assistant"
-  tags: [finance, telegram]
+  description: "AI fitness coaching assistant"
+  tags: [fitness, coaching]
   author: "Acme Corp"
   license: MIT
 
@@ -842,15 +842,15 @@ spec:
     variables:
       - name: current_date
         value: "$func:now_iso"
-      - name: currency
-        value: $env:DEFAULT_CURRENCY
+      - name: unit_system
+        value: $env:UNIT_SYSTEM
 
   tools:
-    - name: delete-expense
+    - name: delete-workout
       type: function
-      description: "Delete an expense record"
+      description: "Delete a logged training session"
       module: $file:tools/impl.py
-      function: delete_expense
+      function: delete_workout
       annotations:
         readOnlyHint: false
         destructiveHint: true
@@ -952,7 +952,7 @@ spec:
     metrics:
       backend: opentelemetry
       endpoint: $env:OTEL_EXPORTER_OTLP_ENDPOINT
-      serviceName: budget-bud
+      serviceName: gymcoach
     logging:
       level: info
       structured: true

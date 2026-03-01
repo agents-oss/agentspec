@@ -1,0 +1,115 @@
+---
+# Patches 2+3 for voice-assistant (combined into one deployment update):
+#   Patch 2/3: Agent container now runs a Python HTTP server on :8080 serving
+#              GET /health → {"status":"ok"} and GET /capabilities → tools JSON.
+#              Removes "healthcheckable" (high/-20) and "discoverable" (medium/-10) violations.
+#   Patch 3/3: Sidecar container gets OPENAI_API_KEY set in its env.
+#              Env check passes → phase transitions from Unhealthy to Healthy.
+#
+# After this patch: score=100 / grade=A / phase=Healthy / source=manifest-static
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-assistant
+  namespace: demo
+  labels:
+    agentspec.io/agent: voice-assistant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: voice-assistant
+  template:
+    metadata:
+      labels:
+        app: voice-assistant
+        agentspec.io/agent: voice-assistant
+    spec:
+      # MED-2: pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        # ── Agent application container (HTTP server — clears healthcheckable + discoverable) ──
+        - name: voice-assistant
+          image: python:3.12.9-slim   # MED-1: pinned patch version, not :latest
+          # Serves /health and /capabilities so the sidecar can probe the upstream.
+          # This removes both the healthcheckable (high/-20) and discoverable (medium/-10) violations,
+          # combined with the guardrails patch → score reaches 100 / grade A.
+          command:
+            - python3
+            - -c
+            - |
+              import json, http.server
+              TOOLS = [
+                {"name": "transcribe"},
+                {"name": "synthesise"},
+                {"name": "search"},
+                {"name": "calendar"},
+              ]
+              class H(http.server.BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      b = json.dumps({"tools": TOOLS} if "cap" in self.path else {"status": "ok"}).encode()
+                      self.send_response(200)
+                      self.send_header("Content-Type", "application/json")
+                      self.send_header("Content-Length", str(len(b)))
+                      self.end_headers()
+                      self.wfile.write(b)
+                  def log_message(self, *a): pass
+              http.server.HTTPServer(("", 8080), H).serve_forever()
+          ports:
+            - containerPort: 8080
+              name: http
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+        # ── agentspec-sidecar ── OPENAI_API_KEY added (Patch 3/3) ────────────
+        - name: sidecar
+          image: agentspec/sidecar:local   # MED-1: pinned, not :latest
+          env:
+            - name: UPSTREAM_URL
+              value: "http://localhost:8080"
+            - name: MANIFEST_PATH
+              value: "/config/agent.yaml"
+            # Patch 3/3: OPENAI_API_KEY now set → env check passes → phase=Healthy
+            - name: OPENAI_API_KEY
+              value: "sk-demo-voice"
+          ports:
+            - containerPort: 4001
+              name: control
+          volumeMounts:
+            - name: agent-manifest
+              mountPath: /config
+              readOnly: true
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+      volumes:
+        - name: agent-manifest
+          configMap:
+            name: voice-assistant-agent-yaml

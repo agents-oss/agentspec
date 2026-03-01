@@ -71,7 +71,7 @@ docs/
 │   ├── compliance.md     # Compliance packs and scoring
 │   └── adapters.md       # Framework adapters
 ├── guides/
-│   ├── migrate-budgetbud.md
+│   ├── migrate-gymcoach.md
 │   ├── add-memory.md
 │   ├── add-guardrails.md
 │   └── ci-integration.md

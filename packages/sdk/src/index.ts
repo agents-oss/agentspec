@@ -90,3 +90,17 @@ export {
   type GeneratedAgent,
   type FrameworkAdapter,
 } from './generate/index.js'
+
+// Agent-side reporter (mount in your agent to expose GET /agentspec/health)
+export {
+  AgentSpecReporter,
+  type ReporterOptions,
+} from './agent/reporter.js'
+
+export { type PushModeOptions } from './agent/push.js'
+
+export { agentSpecFastifyPlugin } from './agent/adapters/fastify.js'
+export { agentSpecExpressRouter } from './agent/adapters/express.js'
+
+// Service checks (exported for advanced use; normally called via runHealthCheck)
+export { runServiceChecks } from './health/checks/service.check.js'

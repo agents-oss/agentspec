@@ -79,11 +79,11 @@ describe('ManifestSchema', () => {
         },
         tools: [
           {
-            name: 'create-expense',
+            name: 'log-workout',
             type: 'function',
-            description: 'Create expense',
-            module: '$file:tools/expenses.py',
-            function: 'create_expense',
+            description: 'Log a training session',
+            module: '$file:tools/workouts.py',
+            function: 'log_workout',
             annotations: { readOnlyHint: false, destructiveHint: false },
           },
         ],

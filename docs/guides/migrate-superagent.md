@@ -212,7 +212,7 @@ npx agentspec audit agent.yaml
 ## Generate LangGraph Code
 
 ```bash
-npm install @agentspec/adapter-langgraph
+export ANTHROPIC_API_KEY=your-api-key-here
 npx agentspec generate agent.yaml --framework langgraph --output ./superagent-langgraph/
 ```
 

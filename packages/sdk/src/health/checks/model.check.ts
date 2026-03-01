@@ -44,10 +44,12 @@ async function checkModelEndpoint(
     const latencyMs = Date.now() - start
 
     // 200 or 401 means the endpoint is reachable (401 = bad key, but server is up)
+    // 5xx means the server responded but returned an error — treat as unreachable
+    const reachable = res.status < 500
     return {
-      reachable: res.status !== 0,
+      reachable,
       latencyMs,
-      error: res.status >= 500 ? `HTTP ${res.status}` : undefined,
+      error: !reachable ? `HTTP ${res.status}` : undefined,
     }
   } catch (err) {
     const latencyMs = Date.now() - start
@@ -62,11 +64,24 @@ async function checkModelEndpoint(
   }
 }
 
+/**
+ * Resolve an API key reference to its actual value.
+ *  - `$env:VAR_NAME`  → read from process.env (returns '' if not set)
+ *  - `$secret:...`    → cannot resolve here, return ''
+ *  - `$file:...`      → cannot resolve here, return ''
+ *  - literal value    → returned as-is
+ */
+function resolveApiKey(ref: string): string {
+  if (ref.startsWith('$env:')) return process.env[ref.slice(5)] ?? ''
+  if (ref.startsWith('$')) return '' // $secret:, $file:, etc. — cannot resolve
+  return ref // literal value
+}
+
 export async function runModelChecks(model: AgentSpecModel): Promise<HealthCheck[]> {
   const checks: HealthCheck[] = []
 
-  // Resolve the api key (it may already be resolved or raw $env:)
-  const apiKey = model.apiKey.startsWith('$') ? '' : model.apiKey
+  // Resolve the api key — handles $env:VAR_NAME references from process.env
+  const apiKey = resolveApiKey(model.apiKey)
 
   if (apiKey) {
     const { reachable, latencyMs, error } = await checkModelEndpoint(model.provider, apiKey)
@@ -81,7 +96,7 @@ export async function runModelChecks(model: AgentSpecModel): Promise<HealthCheck
         : `Model endpoint for ${model.provider} is unreachable: ${error}`,
       remediation: reachable
         ? undefined
-        : `Check that ${model.apiKey} is set and the ${model.provider} API is reachable`,
+        : `Check that ${model.apiKey.startsWith('$') ? model.apiKey : '[api-key]'} is set and the ${model.provider} API is reachable`,
     })
   } else {
     // API key is unresolved — env check will catch it
@@ -96,7 +111,7 @@ export async function runModelChecks(model: AgentSpecModel): Promise<HealthCheck
 
   // Check fallback model
   if (model.fallback) {
-    const fallbackKey = model.fallback.apiKey.startsWith('$') ? '' : model.fallback.apiKey
+    const fallbackKey = resolveApiKey(model.fallback.apiKey)
     if (fallbackKey) {
       const { reachable, latencyMs, error } = await checkModelEndpoint(
         model.fallback.provider,
@@ -113,7 +128,7 @@ export async function runModelChecks(model: AgentSpecModel): Promise<HealthCheck
           : `Fallback model endpoint unreachable: ${error}`,
         remediation: reachable
           ? undefined
-          : `Check that ${model.fallback.apiKey} is set and ${model.fallback.provider} API is reachable`,
+          : `Check that ${model.fallback.apiKey.startsWith('$') ? model.fallback.apiKey : '[api-key]'} is set and ${model.fallback.provider} API is reachable`,
       })
     } else {
       checks.push({

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: research-agent-sidecar
+  namespace: demo
+  labels:
+    agentspec.io/agent: research-agent
+    agentspec.io/role: sidecar
+spec:
+  selector:
+    app: research-agent
+  ports:
+    - name: control
+      port: 4001
+      targetPort: control
+      protocol: TCP
+  type: ClusterIP

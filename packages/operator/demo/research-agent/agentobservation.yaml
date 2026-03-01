@@ -1,0 +1,14 @@
+apiVersion: agentspec.io/v1
+kind: AgentObservation
+metadata:
+  name: research-agent
+  namespace: demo
+  labels:
+    agentspec.io/agent: research-agent
+    agentspec.io/profile: degraded   # C-grade: no guardrails, no /health, no /capabilities; → A after demo-patch
+spec:
+  agentRef:
+    name: research-agent
+  sidecarServiceName: research-agent-sidecar
+  sidecarPort: 4001
+  checkInterval: 30

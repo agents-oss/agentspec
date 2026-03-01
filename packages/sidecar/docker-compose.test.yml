@@ -1,0 +1,42 @@
+# E2E test stack — uses non-standard host ports (14000/14001) to avoid
+# conflicts with any running sidecar instance.
+#
+# Build context must be the repo root so the multi-package Dockerfile works:
+#   docker compose -f packages/sidecar/docker-compose.test.yml up --build -d
+
+services:
+  mock-agent:
+    image: node:22-alpine
+    command: node /app/mock-agent.mjs
+    volumes:
+      - ./test/e2e/mock-agent.mjs:/app/mock-agent.mjs:ro
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+  agentspec-sidecar:
+    build:
+      context: ../../
+      dockerfile: packages/sidecar/Dockerfile
+    ports:
+      - "14000:4000"
+      - "14001:4001"
+    environment:
+      UPSTREAM_URL: http://mock-agent:8000
+      MANIFEST_PATH: /manifest/agent.yaml
+    volumes:
+      - ./test/e2e/agent.yaml:/manifest/agent.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4001/health/live || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    depends_on:
+      mock-agent:
+        condition: service_healthy

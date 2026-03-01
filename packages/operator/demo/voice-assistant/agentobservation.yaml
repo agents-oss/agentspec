@@ -5,7 +5,7 @@ metadata:
   namespace: demo
   labels:
     agentspec.io/agent: voice-assistant
-    agentspec.io/profile: non-compliant   # F-grade: no guardrails, no env, no compliance packs
+    agentspec.io/profile: degraded   # C-grade: no guardrails, no /health, no /capabilities; → A after demo-patch
 spec:
   agentRef:
     name: voice-assistant

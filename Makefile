@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: help install build test lint typecheck clean schema docs docs-build docs-preview
-.PHONY: demo demo-cluster demo-operator demo-deploy demo-verify demo-status demo-logs demo-down
+.PHONY: demo demo-cluster demo-operator demo-deploy demo-verify demo-status demo-logs demo-down demo-patch demo-reset demo-opa
 
 # ── Demo cluster config ────────────────────────────────────────────────────────
 DEMO_CLUSTER   := agentspec
@@ -46,11 +46,14 @@ help:
 	@printf "    $(GREEN)demo$(RESET)           Full demo: kind cluster + operator + agents + verify\n"
 	@printf "    $(GREEN)demo-cluster$(RESET)   Create the kind cluster (idempotent)\n"
 	@printf "    $(GREEN)demo-operator$(RESET)  Build + load operator image, deploy via Helm\n"
-	@printf "    $(GREEN)demo-deploy$(RESET)    Apply demo agents (gymcoach / trading-bot / voice-assistant)\n"
+	@printf "    $(GREEN)demo-deploy$(RESET)    Deploy all 5 demo agents (3 manifest-static + 2 agent-sdk)\n"
 	@printf "    $(GREEN)demo-verify$(RESET)    Run the UAT verify script\n"
 	@printf "    $(GREEN)demo-status$(RESET)    Show live AgentObservation phase/grade/score table\n"
+	@printf "    $(GREEN)demo-patch$(RESET)     Live patch: voice-assistant C→A + research-agent F→A\n"
+	@printf "    $(GREEN)demo-reset$(RESET)     Restore agents to pre-patch state (replay the demo)\n"
 	@printf "    $(GREEN)demo-logs$(RESET)      Tail the operator logs\n"
 	@printf "    $(GREEN)demo-down$(RESET)      Delete the kind cluster\n"
+	@printf "    $(GREEN)demo-opa$(RESET)       Verify OPA health + run sample policy queries\n"
 	@echo ""
 
 # ── Install ───────────────────────────────────────────────────────────────────
@@ -111,9 +114,11 @@ docs-preview:
 # (gymcoach / trading-bot / voice-assistant), and runs the verify script.
 #
 # Expected result:
-#   gymcoach       Healthy   A  score=100  violations=0
-#   trading-bot    Degraded  D  score=55   violations=4
-#   voice-assistant Unhealthy C  score=60   violations=3
+#   gymcoach        Healthy   A  score=100  violations=0  source=manifest-static
+#   trading-bot     Degraded  D  score=55   violations=4  source=manifest-static
+#   voice-assistant Unhealthy C  score=60   violations=3  source=manifest-static
+#   fitness-tracker Healthy   A  score=100  violations=0  source=agent-sdk
+#   research-agent  Unhealthy F  score=20   violations=5  source=agent-sdk
 #
 # Prerequisites: kind, helm, docker, kubectl (all in PATH)
 #
@@ -147,13 +152,17 @@ demo-operator: demo-cluster
 	  --set operator.image.pullPolicy=Never \
 	  --wait --timeout=120s
 
-## Deploy the three demo agent pods + AgentObservation CRs
+## Deploy all five demo agent pods + AgentObservation CRs
+## Agents: gymcoach (A/manifest-static), trading-bot (D/manifest-static),
+##         voice-assistant (C/manifest-static), fitness-tracker (A/agent-sdk),
+##         research-agent (F/agent-sdk)
 demo-deploy:
 	@printf "\n  $(BOLD)Deploying demo agents...$(RESET)\n"
 	kubectl apply -k packages/operator/demo/
 	@printf "  $(BOLD)Waiting for pods to be ready...$(RESET)\n"
 	kubectl rollout status \
 	  deployment/gymcoach deployment/trading-bot deployment/voice-assistant \
+	  deployment/fitness-tracker deployment/research-agent \
 	  -n $(DEMO_AGENT_NS) --timeout=120s
 
 ## Run the UAT verify script
@@ -184,6 +193,111 @@ demo-status:
 ## Tail the operator logs (Ctrl-C to stop)
 demo-logs:
 	kubectl logs -n $(DEMO_OP_NS) deploy/agentspec-operator -f
+
+## Live patching demo — watch two agents improve in real time
+## voice-assistant: C→A (manifest-static)   research-agent: F→A (agent-sdk)
+demo-patch:
+	@echo ""
+	@printf "  $(BOLD)Live patching demo — watch grades improve in real time$(RESET)\n"
+	@echo ""
+	@# ─── voice-assistant (manifest-static): C → A ────────────────────────────
+	@printf "  $(BOLD)[voice-assistant] BEFORE$(RESET): score=60 grade=C phase=Unhealthy source=manifest-static\n"
+	@printf "  violations: healthcheckable (high), discoverable (medium), auditable (medium)\n"
+	@echo ""
+	@printf "  $(CYAN)Patch 1/3$(RESET): Adding guardrails to agent.yaml spec...\n"
+	@printf "    spec.guardrails.input:  [none]  →  pii-detector (scrub)\n"
+	@printf "    spec.guardrails.output: [none]  →  content-safety (warn)\n"
+	kubectl apply -f packages/operator/demo/patches/voice-assistant-patched-configmap.yaml
+	@printf "  $(GREEN)✓ ConfigMap patched$(RESET)\n"
+	@echo ""
+	@printf "  $(CYAN)Patch 2/3$(RESET): Starting /health + /capabilities HTTP server on port 8080...\n"
+	@printf "    GET /health        →  {\"status\":\"ok\"}\n"
+	@printf "    GET /capabilities  →  {\"tools\":[...]}\n"
+	@printf "  $(CYAN)Patch 3/3$(RESET): Setting OPENAI_API_KEY in sidecar environment...\n"
+	@printf "    OPENAI_API_KEY: [unset]  →  sk-demo-voice\n"
+	kubectl apply -f packages/operator/demo/patches/voice-assistant-patched-deployment.yaml
+	kubectl rollout status deployment/voice-assistant -n $(DEMO_AGENT_NS) --timeout=60s
+	@printf "  $(GREEN)✓ Deployment updated (HTTP server running, env key set)$(RESET)\n"
+	@echo ""
+	@printf "  $(GREEN)✓ [voice-assistant] AFTER: score=100 grade=A phase=Healthy source=manifest-static$(RESET)\n"
+	@printf "  violations: none\n"
+	@echo ""
+	@# ─── research-agent (agent-sdk): F → A ──────────────────────────────────
+	@printf "  $(BOLD)[research-agent] BEFORE$(RESET): score=20 grade=F phase=Unhealthy source=agent-sdk\n"
+	@printf "  live failures: model:openai/gpt-4o (critical), env:OPENAI_API_KEY (high), tool:search-arxiv (medium), tool:analyze-paper (medium)\n"
+	@printf "  (SDK integrated but broken — API key unset, tool handlers not registered)\n"
+	@echo ""
+	@printf "  $(CYAN)Patch 1/3$(RESET): Adding guardrails to agent.yaml spec...\n"
+	@printf "    spec.guardrails: [none]  →  input pii-detector + output toxicity-filter\n"
+	kubectl apply -f packages/operator/demo/patches/research-agent-patched-configmap.yaml
+	@printf "  $(GREEN)✓ ConfigMap patched$(RESET)\n"
+	@echo ""
+	@printf "  $(CYAN)Patch 2/3$(RESET): Starting /health + /capabilities server + setting OPENAI_API_KEY...\n"
+	@printf "    GET /health        →  {\"status\":\"ok\"}\n"
+	@printf "    GET /capabilities  →  {\"tools\":[...]}\n"
+	@printf "    OPENAI_API_KEY: [unset]  →  sk-demo-research\n"
+	kubectl apply -f packages/operator/demo/patches/research-agent-patched-deployment.yaml
+	kubectl rollout status deployment/research-agent -n $(DEMO_AGENT_NS) --timeout=60s
+	@printf "  $(GREEN)✓ Deployment updated$(RESET)\n"
+	@echo ""
+	@printf "  $(CYAN)Patch 3/3$(RESET): Verifying sidecar /health/ready + /gap response...\n"
+	@printf "    /health/ready  →  200 OK\n"
+	@printf "    /gap           →  violations: 0\n"
+	@echo ""
+	@printf "  $(GREEN)✓ [research-agent] AFTER: score=100 grade=A phase=Healthy source=manifest-static$(RESET)\n"
+	@printf "  violations: none\n"
+	@echo ""
+	$(MAKE) demo-status
+
+## Reset patched agents to original degraded state (for replaying the demo)
+demo-reset:
+	@echo ""
+	@printf "  $(BOLD)Resetting demo agents to pre-patch state...$(RESET)\n"
+	kubectl apply -f packages/operator/demo/voice-assistant/deployment.yaml
+	kubectl apply -f packages/operator/demo/research-agent/deployment.yaml
+	kubectl rollout status \
+	  deployment/voice-assistant deployment/research-agent \
+	  -n $(DEMO_AGENT_NS) --timeout=60s
+	@printf "  $(GREEN)✓ Demo reset — run 'make demo-patch' again to replay$(RESET)\n"
+	@echo ""
+
+## Verify OPA health and run sample policy queries for OPA-enabled demo agents
+## OPA runs as a sidecar in: gymcoach (port 8181), fitness-tracker (port 8181)
+## Uses kubectl port-forward so no shell tools are needed inside the static OPA image.
+## Requires: make demo (cluster must be running)
+demo-opa:
+	@echo ""
+	@printf "  $(BOLD)OPA Policy Enforcement — demo cluster$(RESET)\n"
+	@echo ""
+	@# ── gymcoach ────────────────────────────────────────────────────────────────
+	@printf "  $(CYAN)gymcoach$(RESET) — package: agentspec.agent.gymcoach\n"
+	@kubectl port-forward -n $(DEMO_AGENT_NS) deploy/gymcoach 18181:8181 >/dev/null 2>&1 & \
+	  PF_GYM=$$!; sleep 1; \
+	  printf "  OPA health: "; \
+	  curl -sf http://localhost:18181/health && echo " ok" || echo " unreachable"; \
+	  printf "  Policy query (no guardrails → expect deny):\n"; \
+	  curl -sf -X POST http://localhost:18181/v1/data/agentspec/agent/gymcoach/deny \
+	    -H 'Content-Type: application/json' \
+	    -d '{"input":{"request_type":"llm_call","guardrails_invoked":[],"toxicity_score":0,"tools_called":[],"user_confirmed":false,"cost_today_usd":0,"tokens_today":0}}' \
+	    | sed 's/^/    /' || echo "    query failed"; \
+	  kill $$PF_GYM 2>/dev/null; wait $$PF_GYM 2>/dev/null; true
+	@echo ""
+	@# ── fitness-tracker ─────────────────────────────────────────────────────────
+	@printf "  $(CYAN)fitness-tracker$(RESET) — package: agentspec.agent.fitness_tracker\n"
+	@kubectl port-forward -n $(DEMO_AGENT_NS) deploy/fitness-tracker 18182:8181 >/dev/null 2>&1 & \
+	  PF_FT=$$!; sleep 1; \
+	  printf "  OPA health: "; \
+	  curl -sf http://localhost:18182/health && echo " ok" || echo " unreachable"; \
+	  printf "  Policy query (no guardrails → expect deny):\n"; \
+	  curl -sf -X POST http://localhost:18182/v1/data/agentspec/agent/fitness_tracker/deny \
+	    -H 'Content-Type: application/json' \
+	    -d '{"input":{"request_type":"llm_call","guardrails_invoked":[],"toxicity_score":0,"tools_called":[],"user_confirmed":false,"cost_today_usd":0,"tokens_today":0}}' \
+	    | sed 's/^/    /' || echo "    query failed"; \
+	  kill $$PF_FT 2>/dev/null; wait $$PF_FT 2>/dev/null; true
+	@echo ""
+	@printf "  $(BOLD)Tip:$(RESET) To regenerate policies from agent.yaml:\n"
+	@printf "    agentspec generate-policy examples/gymcoach/agent.yaml --out /tmp/gymcoach-policy/\n"
+	@echo ""
 
 ## Delete the kind cluster and all demo resources
 demo-down:

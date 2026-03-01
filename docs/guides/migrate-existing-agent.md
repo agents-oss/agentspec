@@ -1,6 +1,6 @@
 # Migrating an Existing Agent to AgentSpec
 
-This guide walks through the process of capturing an existing agent's architecture in an `agent.yaml` manifest. We use a hypothetical finance assistant as the example — the same steps apply to any agent.
+This guide walks through the process of capturing an existing agent's architecture in an `agent.yaml` manifest. We use a gym coaching assistant as the example — the same steps apply to any agent.
 
 ---
 
@@ -26,13 +26,13 @@ Before writing `agent.yaml`, audit your agent's components:
 
 ## Step 2: Write the Manifest
 
-### Finance Assistant Example
+### Gym Coach Example
 
-A typical personal finance agent has:
+A typical fitness coaching agent has:
 - **Model**: Groq Llama (fast, cheap) with Azure GPT-4 fallback
-- **Tools**: create-expense, get-spending-summary, budget-goals (10+ functions)
+- **Tools**: log-workout, get-progress-summary, create-workout-plan (10+ functions)
 - **Memory**: Redis (short-term), Postgres (long-term, 90-day retention)
-- **Guardrails**: Topic filter (finance-only), PII scrub
+- **Guardrails**: Topic filter (fitness-only), PII scrub (medical data)
 - **Evaluation**: deepeval with hallucination < 5%
 - **Observability**: Langfuse
 
@@ -41,10 +41,10 @@ apiVersion: agentspec.io/v1
 kind: AgentSpec
 
 metadata:
-  name: finance-assistant
+  name: gymcoach
   version: 1.0.0
-  description: "Personal finance AI — expense tracking, budget goals, spending insights"
-  tags: [finance, personal-assistant]
+  description: "AI fitness coach — workout plans, session tracking, nutrition guidance"
+  tags: [fitness, coaching, health]
 
 spec:
   model:
@@ -70,29 +70,29 @@ spec:
     hotReload: true
 
   tools:
-    - name: create-expense
+    - name: log-workout
       type: function
-      description: "Record a new expense"
-      module: $file:tools/expenses.py
-      function: create_expense
+      description: "Log a completed training session"
+      module: $file:tools/workouts.py
+      function: log_workout
       annotations:
         readOnlyHint: false
         destructiveHint: false
 
-    - name: get-spending-summary
+    - name: get-progress-summary
       type: function
-      description: "Get spending by category for a period"
+      description: "Get training progress by muscle group for a period"
       module: $file:tools/analytics.py
-      function: get_spending_summary
+      function: get_progress_summary
       annotations:
         readOnlyHint: true
         idempotentHint: true
 
-    - name: delete-expense
+    - name: delete-workout
       type: function
-      description: "Delete an expense record"
-      module: $file:tools/expenses.py
-      function: delete_expense
+      description: "Delete a logged training session"
+      module: $file:tools/workouts.py
+      function: delete_workout
       annotations:
         readOnlyHint: false
         destructiveHint: true    # <-- required for SEC-LLM-08
@@ -112,7 +112,7 @@ spec:
       ttlDays: 90
 
     hygiene:
-      piiScrubFields: [ssn, credit_card, bank_account, routing_number]
+      piiScrubFields: [date_of_birth, medical_conditions, injury_history]
       auditLog: true
 
   guardrails:
@@ -120,7 +120,7 @@ spec:
       - type: topic-filter
         blockedTopics: [illegal_activity, self_harm]
         action: reject
-        message: "I can only help with personal finance."
+        message: "I can only help with fitness and training topics."
       - type: prompt-injection
         action: reject
         sensitivity: high
@@ -136,8 +136,8 @@ spec:
   evaluation:
     framework: deepeval
     datasets:
-      - name: finance-qa
-        path: $file:eval/finance-qa.jsonl
+      - name: workout-qa
+        path: $file:eval/workout-qa.jsonl
     metrics: [faithfulness, hallucination, answer_relevancy]
     thresholds:
       hallucination: 0.05
@@ -202,7 +202,7 @@ npx agentspec health agent.yaml
 Common failures:
 - `env:REDIS_URL not set` → set env var
 - `memory.shortTerm:redis — Connection refused` → start Redis
-- `file:eval/finance-qa.jsonl not found` → create dataset or remove from manifest
+- `file:eval/workout-qa.jsonl not found` → create dataset or remove from manifest
 
 ---
 
@@ -212,7 +212,7 @@ Common failures:
 npx agentspec audit agent.yaml
 ```
 
-The well-configured finance assistant above scores **~88/100 (B)**:
+The well-configured gym coach above scores **~88/100 (B)**:
 
 | Pack | Score | Notes |
 |------|-------|-------|
@@ -228,7 +228,7 @@ To reach grade A (90+), move API keys to `$secret:` references.
 ## Step 6: Generate LangGraph Code
 
 ```bash
-npm install @agentspec/adapter-langgraph
+export ANTHROPIC_API_KEY=your-api-key-here
 npx agentspec generate agent.yaml --framework langgraph --output ./generated/
 ```
 

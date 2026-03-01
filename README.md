@@ -53,11 +53,11 @@ spec:
     system: $file:prompts/system.md
 
   tools:
-    - name: create-expense
+    - name: log-workout
       type: function
-      description: "Create a new expense record"
-      module: $file:tools/expenses.py
-      function: create_expense
+      description: "Log a completed training session"
+      module: $file:tools/workouts.py
+      function: log_workout
       annotations:
         readOnlyHint: false
         destructiveHint: false
@@ -210,7 +210,7 @@ Run `npx agentspec audit` for compliance report.
 - [Health Checks](./docs/concepts/health-checks.md)
 - [Compliance & Audit](./docs/concepts/compliance.md)
 - [LangGraph Adapter](./docs/adapters/langgraph.md)
-- [BudgetBud Migration Guide](./docs/guides/migrate-budgetbud.md)
+- [GymCoach Migration Guide](./docs/guides/migrate-gymcoach.md)
 - [CLI Reference](./docs/reference/cli.md)
 
 ---

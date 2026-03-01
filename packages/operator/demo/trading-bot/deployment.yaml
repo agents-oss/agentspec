@@ -89,7 +89,7 @@ spec:
               memory: "256Mi"
 
         - name: sidecar
-          image: ghcr.io/agentspec/sidecar:0.1.0   # MED-1: pinned, not :latest
+          image: agentspec/sidecar:local   # MED-1: pinned, not :latest
           env:
             - name: UPSTREAM_URL
               value: "http://localhost:8080"

@@ -60,7 +60,7 @@ class ReadyReport(BaseModel):
     source: DataSource
     agentName: str
     timestamp: str
-    summary: HealthSummary
+    summary: HealthSummary = Field(default_factory=HealthSummary)
     checks: list[HealthCheck] = Field(default_factory=list)
     error: Optional[str] = None  # present when status=unavailable
 
@@ -101,6 +101,7 @@ class GapReport(BaseModel):
     score: int = Field(ge=0, le=100)
     issues: list[GapIssue] = Field(default_factory=list)
     source: DataSource
+    modelId: str = "unknown"
     observed: GapObserved = Field(default_factory=GapObserved)
 
 

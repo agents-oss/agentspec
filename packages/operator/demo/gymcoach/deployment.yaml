@@ -1,4 +1,53 @@
 ---
+# ConfigMap: OPA Rego policy generated from gymcoach agent.yaml declarations
+# Run: agentspec generate-policy agent.yaml --out /tmp/policy
+# Then paste policy.rego and data.json contents below.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gymcoach-opa-policy
+  namespace: demo
+  labels:
+    agentspec.io/agent: gymcoach
+data:
+  policy.rego: |
+    package agentspec.agent.gymcoach
+
+    import rego.v1
+
+    default allow := false
+
+    allow if {
+        count(deny) == 0
+    }
+
+    # ── Input guardrail enforcement ───────────────────────────────────────────────
+
+    deny contains "pii_detector_not_invoked" if {
+        input.request_type == "llm_call"
+        not "pii-detector" in input.guardrails_invoked
+    }
+
+    # ── Output guardrail enforcement ──────────────────────────────────────────────
+
+    deny contains "toxicity_threshold_exceeded" if {
+        input.request_type == "llm_call"
+        input.toxicity_score >= data.toxicityThreshold
+    }
+
+    # ── Destructive tool confirmation ─────────────────────────────────────────────
+
+    deny contains "destructive_tool_without_confirmation" if {
+        some tool in input.tools_called
+        tool in data.destructiveTools
+        not input.user_confirmed
+    }
+  data.json: |
+    {
+      "toxicityThreshold": 0.7,
+      "destructiveTools": []
+    }
+---
 # ConfigMap: agent.yaml manifest mounted into both containers
 apiVersion: v1
 kind: ConfigMap
@@ -113,12 +162,14 @@ spec:
 
         # ── agentspec-sidecar (control plane on port 4001) ───────────────────
         - name: sidecar
-          image: ghcr.io/agentspec/sidecar:0.1.0   # MED-1: pinned, not :latest
+          image: agentspec/sidecar:local   # MED-1: pinned, not :latest
           env:
             - name: UPSTREAM_URL
               value: "http://localhost:8080"
             - name: MANIFEST_PATH
               value: "/config/agent.yaml"
+            - name: OPA_URL
+              value: "http://localhost:8181"
           ports:
             - containerPort: 4000
               name: proxy
@@ -149,7 +200,48 @@ spec:
               cpu: "200m"
               memory: "256Mi"
 
+        # ── OPA policy enforcement sidecar (port 8181) ───────────────────────
+        - name: opa
+          image: openpolicyagent/opa:0.70.0-static   # pinned version, not :latest
+          args:
+            - run
+            - --server
+            - --addr=:8181
+            - --log-level=error
+            - /policies/policy.rego
+            - /policies/data.json
+          ports:
+            - containerPort: 8181
+              name: opa
+          volumeMounts:
+            - name: opa-policy
+              mountPath: /policies
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: opa
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+
       volumes:
         - name: agent-manifest
           configMap:
             name: gymcoach-agent-yaml
+        - name: opa-policy
+          configMap:
+            name: gymcoach-opa-policy

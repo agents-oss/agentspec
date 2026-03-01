@@ -1,0 +1,39 @@
+services:
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      AGENTSPEC_ADMIN_KEY: ${AGENTSPEC_ADMIN_KEY:?AGENTSPEC_ADMIN_KEY must be set}
+      DATABASE_URL: postgresql+asyncpg://agentspec:${POSTGRES_PASSWORD:-agentspec}@postgres:5432/agentspec
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agentspec
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentspec}
+      POSTGRES_DB: agentspec
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentspec"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

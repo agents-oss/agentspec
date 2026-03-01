@@ -17,13 +17,13 @@ const __dirname = dirname(__filename)
 const repoRoot = resolve(__dirname, '../../../..')
 const tsxBin = join(repoRoot, 'node_modules/.bin/tsx')
 const cliSrc = join(repoRoot, 'packages/cli/src/cli.ts')
-const exampleManifest = join(repoRoot, 'examples/budgetbud/agent.yaml')
+const exampleManifest = join(repoRoot, 'examples/gymcoach/agent.yaml')
 
-async function runCli(args: string[]) {
+async function runCli(args: string[], env?: Record<string, string>) {
   return execa(tsxBin, [cliSrc, ...args], {
     cwd: repoRoot,
     reject: false,
-    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1', ...env },
   })
 }
 
@@ -81,5 +81,49 @@ describe('agentspec migrate', () => {
   it('stdout indicates already at latest version', async () => {
     const result = await runCli(['migrate', exampleManifest, '--dry-run'])
     expect(result.stdout).toContain('latest')
+  })
+})
+
+describe('agentspec generate', () => {
+  it('exits 1 for an unknown framework', async () => {
+    const result = await runCli(
+      ['generate', exampleManifest, '--framework', 'unknown-fw'],
+      { ANTHROPIC_API_KEY: '' },
+    )
+    expect(result.exitCode).toBe(1)
+  })
+
+  it('stderr contains "not supported" for an unknown framework', async () => {
+    const result = await runCli(
+      ['generate', exampleManifest, '--framework', 'unknown-fw'],
+      { ANTHROPIC_API_KEY: '' },
+    )
+    const combined = result.stdout + result.stderr
+    expect(combined).toMatch(/not supported|Unknown framework/i)
+  })
+
+  it('exits 1 when ANTHROPIC_API_KEY is missing for langgraph', async () => {
+    const result = await runCli(
+      ['generate', exampleManifest, '--framework', 'langgraph'],
+      { ANTHROPIC_API_KEY: '' },
+    )
+    expect(result.exitCode).toBe(1)
+  })
+
+  it('stderr contains ANTHROPIC_API_KEY when key is missing', async () => {
+    const result = await runCli(
+      ['generate', exampleManifest, '--framework', 'langgraph'],
+      { ANTHROPIC_API_KEY: '' },
+    )
+    const combined = result.stdout + result.stderr
+    expect(combined).toContain('ANTHROPIC_API_KEY')
+  })
+
+  it('exits 1 with --dry-run when ANTHROPIC_API_KEY is missing', async () => {
+    const result = await runCli(
+      ['generate', exampleManifest, '--framework', 'langgraph', '--dry-run'],
+      { ANTHROPIC_API_KEY: '' },
+    )
+    expect(result.exitCode).toBe(1)
   })
 })

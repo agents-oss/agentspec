@@ -1,0 +1,5 @@
+{"input": "How many sets should I do for hypertrophy?", "expected_output": "3–5 sets per exercise is the evidence-based range for hypertrophy, with 6–12 reps at 65–85% of your one-rep max."}
+{"input": "What muscle groups does a Romanian deadlift target?", "expected_output": "The Romanian deadlift primarily targets the hamstrings and glutes, with secondary engagement of the lower back and core."}
+{"input": "How long should I rest between sets for strength training?", "expected_output": "For strength (1–5 rep range), rest 3–5 minutes between sets to allow full ATP-PCr system recovery."}
+{"input": "Is it okay to train the same muscle group two days in a row?", "expected_output": "Generally, muscles need 48 hours to recover. Training the same group on consecutive days is not recommended unless the volume is very low."}
+{"input": "What is progressive overload?", "expected_output": "Progressive overload means gradually increasing the training stimulus over time — by adding weight, reps, sets, or reducing rest — to continue driving adaptation."}

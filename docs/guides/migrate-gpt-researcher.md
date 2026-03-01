@@ -335,7 +335,7 @@ With all three applied, the expected score rises to ~88/100 (grade B).
 ## Generating LangGraph Code
 
 ```bash
-npm install @agentspec/adapter-langgraph
+export ANTHROPIC_API_KEY=your-api-key-here
 npx agentspec generate agent.yaml --framework langgraph --output ./generated/
 ```
 

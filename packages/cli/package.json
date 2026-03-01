@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@agentspec/sdk": "workspace:*",
+    "@agentspec/adapter-claude": "workspace:*",
     "chalk": "^5.4.1",
     "commander": "^12.1.0",
     "@clack/prompts": "^0.9.1",

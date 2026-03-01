@@ -1,0 +1,168 @@
+---
+# ConfigMap: agent.yaml manifest mounted into both containers
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: research-agent-agent-yaml
+  namespace: demo
+  labels:
+    agentspec.io/agent: research-agent
+data:
+  agent.yaml: |
+    apiVersion: agentspec.io/v1
+    kind: AgentSpec
+    metadata:
+      name: research-agent
+      version: "0.4.0"
+      description: "Research agent with SDK integrated but broken: model key missing, tool handlers not registered"
+    spec:
+      model:
+        provider: openai
+        id: gpt-4o
+        apiKey: $env:OPENAI_API_KEY   # not set in pod — live model check fails
+      prompts:
+        system: "You are a research assistant. Search academic papers and synthesise findings."
+      tools:
+        - name: search-arxiv
+          type: function
+          description: "Search arXiv for papers matching a query"
+        - name: analyze-paper
+          type: function
+          description: "Analyse a paper PDF and extract key findings"
+      # No guardrails block — intentional compliance gap → auditable violation (medium/-10)
+      # Combined with live failures: model:fail (-30) + 2×tool:fail (-20) → score=40 / grade=F
+      # Only reachable in agent-sdk mode (manifest-static cannot detect live tool registration failures)
+---
+# Deployment: agent container (SDK-integrated but failing) + agentspec-sidecar
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: research-agent
+  namespace: demo
+  labels:
+    agentspec.io/agent: research-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: research-agent
+  template:
+    metadata:
+      labels:
+        app: research-agent
+        agentspec.io/agent: research-agent
+    spec:
+      # MED-2: pod-level security context — all containers inherit runAsNonRoot
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        # ── Agent application container (broken agent-sdk mock — live checks all fail) ──
+        - name: research-agent
+          image: python:3.12.9-slim   # MED-1: pinned patch version, not :latest
+          # Pre-patch agent-sdk state: the agent serves /agentspec/health with a
+          # FAILING health report (SDK integrated but broken). This gives source=agent-sdk
+          # and the following live violations:
+          #   model:openai/gpt-4o   FAIL (critical, −30) — API key not set
+          #   tool:search-arxiv     FAIL (medium,   −10) — handler not registered
+          #   tool:analyze-paper    FAIL (medium,   −10) — handler not registered
+          #   auditable             FAIL (medium,   −10) — no guardrails in manifest
+          # score=40 / grade=F / phase=Unhealthy / source=agent-sdk (pre-patch)
+          # After demo-patch: all checks pass, guardrails added → score=100 / grade=A
+          command:
+            - python3
+            - -c
+            - |
+              import json, http.server, datetime
+              TOOLS = [
+                {"name": "search-arxiv",  "description": "Search arXiv for papers matching a query"},
+                {"name": "analyze-paper", "description": "Analyse a paper PDF and extract key findings"},
+              ]
+              def health_report():
+                  return {
+                      "agentName": "research-agent",
+                      "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                      "status": "unhealthy",
+                      "summary": {"passed": 0, "failed": 3, "warnings": 0, "skipped": 0},
+                      "checks": [
+                          {"id": "model:openai/gpt-4o",  "category": "model", "status": "fail", "severity": "error",  "message": "API key not set — set OPENAI_API_KEY"},
+                          {"id": "tool:search-arxiv",    "category": "tool",  "status": "fail", "severity": "info",   "message": "Handler not registered — call reporter.registerTool()"},
+                          {"id": "tool:analyze-paper",   "category": "tool",  "status": "fail", "severity": "info",   "message": "Handler not registered — call reporter.registerTool()"},
+                      ],
+                  }
+              class H(http.server.BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      if "agentspec/health" in self.path:
+                          b = json.dumps(health_report()).encode()
+                      elif "cap" in self.path:
+                          b = json.dumps({"tools": TOOLS}).encode()
+                      else:
+                          b = json.dumps({"status": "ok"}).encode()
+                      self.send_response(200)
+                      self.send_header("Content-Type", "application/json")
+                      self.send_header("Content-Length", str(len(b)))
+                      self.end_headers()
+                      self.wfile.write(b)
+                  def log_message(self, *a): pass
+              http.server.HTTPServer(("", 8080), H).serve_forever()
+          # OPENAI_API_KEY deliberately absent — live model check fails
+          ports:
+            - containerPort: 8080
+              name: http
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+        # ── agentspec-sidecar (control plane on port 4001) ───────────────────
+        - name: sidecar
+          image: agentspec/sidecar:local   # MED-1: pinned, not :latest
+          env:
+            - name: UPSTREAM_URL
+              value: "http://localhost:8080"
+            - name: MANIFEST_PATH
+              value: "/config/agent.yaml"
+            # OPENAI_API_KEY intentionally absent — live report covers the failure
+          ports:
+            - containerPort: 4001
+              name: control
+          volumeMounts:
+            - name: agent-manifest
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/live
+              port: control
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+      volumes:
+        - name: agent-manifest
+          configMap:
+            name: research-agent-agent-yaml

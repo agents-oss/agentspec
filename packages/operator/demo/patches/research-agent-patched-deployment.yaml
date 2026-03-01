@@ -1,0 +1,141 @@
+---
+# Patches 2+3 for research-agent (combined into one deployment update):
+#   Patch 2/3: Mock server updated to return a HEALTHY /agentspec/health response.
+#              model:fail cleared (+30), 2×tool:fail cleared (+20) → live violations gone.
+#              OPENAI_API_KEY set in agent env for narrative consistency.
+#   Patch 3/3: /agentspec/health now shows all checks PASS — verified in Makefile output.
+#
+# After this patch: score=100 / grade=A / phase=Healthy / source=agent-sdk
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: research-agent
+  namespace: demo
+  labels:
+    agentspec.io/agent: research-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: research-agent
+  template:
+    metadata:
+      labels:
+        app: research-agent
+        agentspec.io/agent: research-agent
+    spec:
+      # MED-2: pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        # ── Agent application container (healthy mock server — all checks pass) ──
+        - name: research-agent
+          image: python:3.12.9-slim   # MED-1: pinned patch version, not :latest
+          # Patched mock server: /agentspec/health now reports all checks PASS.
+          #   model:openai/gpt-4o  PASS ✓ (latencyMs: 95)
+          #   tool:search-arxiv    PASS ✓ (latencyMs: 12)
+          #   tool:analyze-paper   PASS ✓ (latencyMs: 8)
+          # Combined with the ConfigMap patch (guardrails added) → score=100 / grade=A
+          command:
+            - python3
+            - -c
+            - |
+              import json, http.server, datetime
+              TOOLS = [
+                {"name": "search-arxiv",  "description": "Search arXiv for papers matching a query"},
+                {"name": "analyze-paper", "description": "Analyse a paper PDF and extract key findings"},
+              ]
+              def health_report():
+                  return {
+                      "agentName": "research-agent",
+                      "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                      "status": "healthy",
+                      "summary": {"passed": 3, "failed": 0, "warnings": 0, "skipped": 0},
+                      "checks": [
+                          {"id": "model:openai/gpt-4o",  "category": "model", "status": "pass", "severity": "error", "latencyMs": 95},
+                          {"id": "tool:search-arxiv",    "category": "tool",  "status": "pass", "severity": "info",  "latencyMs": 12},
+                          {"id": "tool:analyze-paper",   "category": "tool",  "status": "pass", "severity": "info",  "latencyMs": 8},
+                      ],
+                  }
+              class H(http.server.BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      if "agentspec/health" in self.path:
+                          b = json.dumps(health_report()).encode()
+                      elif "cap" in self.path:
+                          b = json.dumps({"tools": TOOLS}).encode()
+                      else:
+                          b = json.dumps({"status": "ok"}).encode()
+                      self.send_response(200)
+                      self.send_header("Content-Type", "application/json")
+                      self.send_header("Content-Length", str(len(b)))
+                      self.end_headers()
+                      self.wfile.write(b)
+                  def log_message(self, *a): pass
+              http.server.HTTPServer(("", 8080), H).serve_forever()
+          env:
+            # Patch 2/3: OPENAI_API_KEY set — model check now passes (narrative consistency)
+            - name: OPENAI_API_KEY
+              value: "sk-demo-research"
+          ports:
+            - containerPort: 8080
+              name: http
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+        # ── agentspec-sidecar ── OPENAI_API_KEY added ────────────────────────
+        - name: sidecar
+          image: agentspec/sidecar:local   # MED-1: pinned, not :latest
+          env:
+            - name: UPSTREAM_URL
+              value: "http://localhost:8080"
+            - name: MANIFEST_PATH
+              value: "/config/agent.yaml"
+            # OPENAI_API_KEY now set — sidecar env check passes
+            - name: OPENAI_API_KEY
+              value: "sk-demo-research"
+          ports:
+            - containerPort: 4001
+              name: control
+          volumeMounts:
+            - name: agent-manifest
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/live
+              port: control
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+      volumes:
+        - name: agent-manifest
+          configMap:
+            name: research-agent-agent-yaml

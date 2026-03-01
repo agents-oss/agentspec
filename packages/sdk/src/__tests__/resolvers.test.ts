@@ -1,15 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { tmpdir } from 'node:os'
-import { resolveRef, collectEnvRefs, collectFileRefs } from '../loader/resolvers.js'
+import { resolveRef, resolveRefs, collectEnvRefs, collectFileRefs } from '../loader/resolvers.js'
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
+// Use a project-relative directory to avoid macOS /var/folders EINVAL issues
+const TEST_TMP_BASE = resolve(import.meta.dirname ?? process.cwd(), '..', '..', '.test-tmp')
 let testDir: string
 
 beforeEach(() => {
-  testDir = join(tmpdir(), `agentspec-test-${Date.now()}`)
+  testDir = join(TEST_TMP_BASE, `resolvers-${Date.now()}`)
   mkdirSync(testDir, { recursive: true })
 })
 
@@ -136,11 +137,153 @@ describe('collectFileRefs', () => {
   it('collects file paths from a nested object', () => {
     const obj = {
       system: '$file:prompts/system.md',
-      tools: [{ module: '$file:tools/expenses.py' }],
+      tools: [{ module: '$file:tools/workouts.py' }],
     }
     const refs = collectFileRefs(obj)
     expect(refs).toContain('prompts/system.md')
-    expect(refs).toContain('tools/expenses.py')
+    expect(refs).toContain('tools/workouts.py')
     expect(refs.size).toBe(2)
+  })
+})
+
+// ── resolveRef — $secret: tests ───────────────────────────────────────────────
+
+describe('resolveRef — $secret: (env backend)', () => {
+  afterEach(() => {
+    delete process.env['AGENTSPEC_SECRET_MY_KEY']
+    delete process.env['AGENTSPEC_SECRET_DB_PASSWORD']
+  })
+
+  it('resolves $secret:my-key from env var AGENTSPEC_SECRET_MY_KEY', () => {
+    process.env['AGENTSPEC_SECRET_MY_KEY'] = 'super-secret-value'
+    const result = resolveRef('$secret:my-key', { baseDir: testDir, secretBackend: 'env' })
+    expect(result).toBe('super-secret-value')
+  })
+
+  it('converts hyphens to underscores in env key name', () => {
+    process.env['AGENTSPEC_SECRET_DB_PASSWORD'] = 'db-pass-123'
+    const result = resolveRef('$secret:db-password', { baseDir: testDir, secretBackend: 'env' })
+    expect(result).toBe('db-pass-123')
+  })
+
+  it('throws when secret env var is not set (env backend)', () => {
+    delete process.env['AGENTSPEC_SECRET_MISSING']
+    expect(() =>
+      resolveRef('$secret:missing', { baseDir: testDir, secretBackend: 'env' }),
+    ).toThrow('"missing" not found')
+  })
+
+  it('uses AGENTSPEC_SECRET_BACKEND env var as default backend', () => {
+    process.env['AGENTSPEC_SECRET_BACKEND'] = 'env'
+    process.env['AGENTSPEC_SECRET_MY_KEY'] = 'from-env-backend'
+
+    const result = resolveRef('$secret:my-key', { baseDir: testDir })
+    expect(result).toBe('from-env-backend')
+
+    delete process.env['AGENTSPEC_SECRET_BACKEND']
+    delete process.env['AGENTSPEC_SECRET_MY_KEY']
+  })
+})
+
+describe('resolveRef — $secret: (non-env backends)', () => {
+  it('throws for vault backend with "requires async resolution" message', () => {
+    expect(() =>
+      resolveRef('$secret:my-key', { baseDir: testDir, secretBackend: 'vault' }),
+    ).toThrow('requires async resolution')
+  })
+
+  it('throws for aws backend', () => {
+    expect(() =>
+      resolveRef('$secret:my-key', { baseDir: testDir, secretBackend: 'aws' }),
+    ).toThrow('requires async resolution')
+  })
+
+  it('throws for gcp backend', () => {
+    expect(() =>
+      resolveRef('$secret:my-key', { baseDir: testDir, secretBackend: 'gcp' }),
+    ).toThrow('requires async resolution')
+  })
+
+  it('throws for azure backend', () => {
+    expect(() =>
+      resolveRef('$secret:my-key', { baseDir: testDir, secretBackend: 'azure' }),
+    ).toThrow('requires async resolution')
+  })
+})
+
+// ── resolveRefs (deep walk) ───────────────────────────────────────────────────
+
+describe('resolveRefs — deep object walking', () => {
+  afterEach(() => {
+    delete process.env['TEST_API_KEY']
+    delete process.env['TEST_DB_URL']
+  })
+
+  it('resolves $env: refs in a plain object', () => {
+    process.env['TEST_API_KEY'] = 'resolved-key'
+    const obj = { apiKey: '$env:TEST_API_KEY', name: 'my-agent' }
+    const result = resolveRefs(obj, { baseDir: testDir }) as typeof obj
+    expect(result.apiKey).toBe('resolved-key')
+    expect(result.name).toBe('my-agent')
+  })
+
+  it('resolves $env: refs in nested objects', () => {
+    process.env['TEST_DB_URL'] = 'postgres://db.example.com/mydb'
+    const obj = { spec: { memory: { longTerm: { connectionString: '$env:TEST_DB_URL' } } } }
+    const result = resolveRefs(obj, { baseDir: testDir }) as typeof obj
+    expect(result.spec.memory.longTerm.connectionString).toBe('postgres://db.example.com/mydb')
+  })
+
+  it('resolves $env: refs inside arrays', () => {
+    process.env['TEST_API_KEY'] = 'array-key'
+    const obj = ['$env:TEST_API_KEY', 'literal-value']
+    const result = resolveRefs(obj, { baseDir: testDir }) as string[]
+    expect(result[0]).toBe('array-key')
+    expect(result[1]).toBe('literal-value')
+  })
+
+  it('passes through non-string, non-object values unchanged', () => {
+    const obj = { count: 42, flag: true, nothing: null }
+    const result = resolveRefs(obj, { baseDir: testDir }) as typeof obj
+    expect(result.count).toBe(42)
+    expect(result.flag).toBe(true)
+    expect(result.nothing).toBeNull()
+  })
+
+  it('returns string values directly (leaf resolveRef)', () => {
+    process.env['TEST_API_KEY'] = 'direct-key'
+    const result = resolveRefs('$env:TEST_API_KEY', { baseDir: testDir })
+    expect(result).toBe('direct-key')
+  })
+
+  it('returns empty string for unresolved $env: when optional mode (resolveRefs uses optional=true)', () => {
+    delete process.env['UNSET_VAR_XYZ']
+    // resolveRefs calls resolveRef with { optional: true }, so missing vars → ''
+    const result = resolveRefs('$env:UNSET_VAR_XYZ', { baseDir: testDir })
+    expect(result).toBe('')
+  })
+
+  it('resolves $file: refs within objects', () => {
+    writeFileSync(join(testDir, 'prompt.md'), 'System prompt content')
+    const obj = { prompts: { system: '$file:prompt.md' } }
+    const result = resolveRefs(obj, { baseDir: testDir }) as typeof obj
+    expect(result.prompts.system).toBe('System prompt content')
+  })
+})
+
+// ── resolveRef — $func: additional ───────────────────────────────────────────
+
+describe('resolveRef — $func: now_unix and now_date', () => {
+  it('resolves now_unix to a Unix timestamp string', () => {
+    const result = resolveRef('$func:now_unix', { baseDir: testDir })
+    const ts = parseInt(result, 10)
+    expect(Number.isInteger(ts)).toBe(true)
+    // Should be within a few seconds of now
+    expect(Math.abs(ts - Math.floor(Date.now() / 1000))).toBeLessThan(5)
+  })
+
+  it('resolves now_date to a YYYY-MM-DD string', () => {
+    const result = resolveRef('$func:now_date', { baseDir: testDir })
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 })

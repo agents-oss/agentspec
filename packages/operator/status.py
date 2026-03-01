@@ -38,6 +38,7 @@ def build_status_patch(result: ProbeResult) -> dict:
       gap.score      → grade + score
       gap.issues     → violations count
       health.source  → source
+      gap.modelId    → model.id (always populated from manifest)
       model check    → model.status + model.latencyMs
       conditions[]   → Ready | Compliant | ModelReachable
     """
@@ -59,7 +60,7 @@ def build_status_patch(result: ProbeResult) -> dict:
         "source": h.source,
         "lastChecked": h.timestamp or _now_iso(),
         "violations": len(g.issues),
-        "model": _model_status(model_check),
+        "model": _model_status(model_check, g.modelId),
         "summary": summary_dict,
         "conditions": _build_conditions(h, g),
     }
@@ -75,10 +76,13 @@ def _health_to_phase(health_status: str) -> str:
     }.get(health_status, "Unknown")
 
 
-def _model_status(model_check: Optional[HealthCheck]) -> dict:
+def _model_status(model_check: Optional[HealthCheck], gap_model_id: str = "unknown") -> dict:
     if model_check is None:
-        return {"status": "unknown"}
-    result = {"status": model_check.status}
+        # No live model check — use the model ID from the gap report (from manifest)
+        return {"status": "unknown", "id": gap_model_id}
+    # check.id is "model:<provider>/<model-id>" — strip the "model:" prefix
+    model_id = model_check.id.removeprefix("model:") if model_check.id.startswith("model:") else model_check.id
+    result = {"status": model_check.status, "id": model_id}
     if model_check.latencyMs is not None:
         result["latencyMs"] = model_check.latencyMs
     return result

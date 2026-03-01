@@ -1,0 +1,3 @@
+{"input": "I have knee pain. Can I still squat?", "expected_output": "Knee pain during squats can have several causes. Rest the joint, and consult a physiotherapist before resuming. Low-impact alternatives like leg press or box squats with reduced depth may be suitable in the interim."}
+{"input": "What is the best exercise for a bigger chest?", "expected_output": "The barbell bench press, incline dumbbell press, and cable fly are among the most effective compound and isolation movements for chest hypertrophy."}
+{"input": "How do I improve my pull-up count?", "expected_output": "Practise pull-ups with frequency (3–4 times per week), use assisted or banded pull-ups to build volume, and add lat pulldowns and rows as accessory work."}

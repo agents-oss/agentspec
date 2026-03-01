@@ -1,0 +1,21 @@
+apiVersion: agentspec.io/v1
+kind: AgentSpec
+metadata:
+  name: test-agent
+  version: 1.0.0
+  description: Minimal test agent for E2E smoke tests
+spec:
+  model:
+    provider: openai
+    id: gpt-4o-mini
+    apiKey: $env:OPENAI_API_KEY
+  prompts:
+    system: You are a test agent.
+    hotReload: false
+  tools:
+    - name: echo
+      type: function
+      description: Echo the input back
+      annotations:
+        readOnlyHint: true
+        destructiveHint: false

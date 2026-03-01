@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+.env.local

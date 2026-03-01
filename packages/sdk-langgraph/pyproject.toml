@@ -1,0 +1,23 @@
+[project]
+name = "agentspec-langgraph"
+version = "0.1.0"
+description = "LangGraph sub-SDK for AgentSpec behavioral instrumentation"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+langgraph = ["langgraph>=0.2.0", "langchain-core>=0.3.0"]
+opa = ["httpx>=0.25.0"]
+all = ["langgraph>=0.2.0", "langchain-core>=0.3.0", "httpx>=0.25.0"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
