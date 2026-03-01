@@ -1,0 +1,14 @@
+apiVersion: agentspec.io/v1
+kind: AgentObservation
+metadata:
+  name: gymcoach
+  namespace: demo
+  labels:
+    agentspec.io/agent: gymcoach
+    agentspec.io/profile: compliant   # A-grade: full guardrails, all env set
+spec:
+  agentRef:
+    name: gymcoach
+  sidecarServiceName: gymcoach-sidecar
+  sidecarPort: 4001
+  checkInterval: 30

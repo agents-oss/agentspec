@@ -1,0 +1,83 @@
+AgentSpec Operator installed successfully!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Live view in k9s
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  k9s                    # open k9s
+  :ao <Enter>            # switch to AgentObservation view
+
+The table refreshes every ~5s (k9s API server polling).
+Columns: PHASE  GRADE  SCORE  MODEL  VIOLATIONS  SOURCE  CHECKED
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Deploy the demo agents
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  kubectl apply -f https://raw.githubusercontent.com/agentspec/agentboot/main/packages/operator/demo/
+
+or (from the repo):
+  kubectl apply -f packages/operator/demo/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ k9s drill-down plugins (optional)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Add to ~/.config/k9s/plugins.yaml:
+
+plugins:
+  agentspec-health:
+    shortCut: Shift-H
+    description: Full health report (sidecar)
+    scopes: [agentobservations]
+    command: bash
+    background: false
+    args:
+      - -c
+      - |
+        SVC=$(kubectl get ao $NAME -n $NAMESPACE -o jsonpath='{.spec.sidecarServiceName}')
+        PORT=$(kubectl get ao $NAME -n $NAMESPACE -o jsonpath='{.spec.sidecarPort}')
+        kubectl run agentspec-probe-$RANDOM --rm -i --restart=Never \
+          --image=curlimages/curl -- \
+          curl -s http://$SVC.$NAMESPACE.svc.cluster.local:$PORT/health/ready \
+          | python3 -m json.tool
+
+  agentspec-gap:
+    shortCut: Shift-G
+    description: Gap analysis (sidecar)
+    scopes: [agentobservations]
+    command: bash
+    background: false
+    args:
+      - -c
+      - |
+        SVC=$(kubectl get ao $NAME -n $NAMESPACE -o jsonpath='{.spec.sidecarServiceName}')
+        PORT=$(kubectl get ao $NAME -n $NAMESPACE -o jsonpath='{.spec.sidecarPort}')
+        kubectl run agentspec-gap-$RANDOM --rm -i --restart=Never \
+          --image=curlimages/curl -- \
+          curl -s http://$SVC.$NAMESPACE.svc.cluster.local:$PORT/gap \
+          | python3 -m json.tool
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Operator logs
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  kubectl logs -n {{ .Release.Namespace }} deploy/agentspec-operator -f
+
+{{- if .Values.controlPlane.enabled }}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ RemoteAgentWatcher (cross-runtime visibility)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if not .Values.controlPlane.apiKey }}
+REQUIRED: Create the control-plane admin key Secret:
+
+  kubectl create secret generic agentspec-control-plane \
+    --namespace={{ .Release.Namespace }} \
+    --from-literal=apiKey=<your-admin-key>
+
+Then restart the operator:
+  kubectl rollout restart deployment/agentspec-operator -n {{ .Release.Namespace }}
+{{- else }}
+Admin key Secret created from values.controlPlane.apiKey.
+For production, prefer creating the Secret separately to avoid
+storing credentials in Helm release history.
+{{- end }}
+
+Remote agents will appear in k9s :ao under namespace: {{ .Values.controlPlane.namespace | default "agentspec-remote" }}
+{{- end }}

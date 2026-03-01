@@ -1,0 +1,95 @@
+{{- if .Values.installCRD }}
+# AgentObservation CRD — installed via Helm
+# k9s: type ':ao' to get the live table
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agentobservations.agentspec.io
+  labels:
+    {{- include "agentspec-operator.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep   # keep CRD on helm uninstall (preserves data)
+    agentspec.io/description: "Live compliance + health observation for AI agent pods"
+spec:
+  group: agentspec.io
+  names:
+    kind: AgentObservation
+    plural: agentobservations
+    singular: agentobservation
+    shortNames:
+      - ao
+    categories:
+      - agentspec
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          description: "Healthy / Degraded / Unhealthy / Unknown / Pending"
+          jsonPath: .status.phase
+        - name: Grade
+          type: string
+          description: "A / B / C / D / F"
+          jsonPath: .status.grade
+        - name: Score
+          type: integer
+          description: "Compliance score 0-100"
+          jsonPath: .status.score
+        - name: Model
+          type: string
+          description: "Model reachability: pass / fail / skip / unknown"
+          jsonPath: .status.model.status
+        - name: Violations
+          type: integer
+          description: "Open compliance violations"
+          jsonPath: .status.violations
+        - name: Source
+          type: string
+          description: "agent-sdk or manifest-static"
+          jsonPath: .status.source
+        - name: Checked
+          type: date
+          description: "Last probe timestamp"
+          jsonPath: .status.lastChecked
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - agentRef
+              properties:
+                agentRef:
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                sidecarServiceName:
+                  type: string
+                sidecarPort:
+                  type: integer
+                  default: 4001
+                  minimum: 1024
+                  maximum: 65535
+                checkInterval:
+                  type: integer
+                  default: 30
+                  minimum: 5
+                  maximum: 3600
+                source:
+                  type: string
+                  description: "'sidecar' (default, probed by operator) or 'control-plane' (heartbeat-driven, no sidecar probe)"
+                  default: sidecar
+                  enum: [sidecar, control-plane]
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+{{- end }}

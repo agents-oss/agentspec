@@ -27,9 +27,9 @@ Each phase is self-contained: read `phases/phase-N/spec.md` for goal, deliverabl
 | 1 | k8s Operator (Kopf + CRD + k9s + 76 tests) | ✅ DONE | [spec](phase-1/spec.md) | All 76 tests passing |
 | 2 | MutatingWebhook auto-inject | ✅ DONE | [spec](phase-2/spec.md) | 121 tests passing. UAT: `uat/webhook_testing.md` + `uat/verify-webhook.sh` |
 | 3 | Control plane service (register + heartbeat) | ✅ DONE | [spec](phase-3/spec.md) | 85 tests passing. FastAPI + JWT (revocation) + SQLAlchemy async + docker-compose + UAT guide |
-| 4 | SDK `startPushMode()` (TypeScript + Python) | ⬜ TODO | [spec](phase-4/spec.md) | Adds push to `packages/sdk/`; new `packages/sdk-python/` |
+| 4 | SDK `startPushMode()` (TypeScript + Python) | ✅ DONE | [spec](phase-4/spec.md) | Adds push to `packages/sdk/`; new `packages/sdk-python/`. 19 Python SDK tests. |
 | 5 | `agentspec scan` + `agentspec diff` | ✅ DONE | [spec](phase-5/spec.md) | 234 CLI tests (47 new). scan: Claude-powered code→yaml. diff: deterministic drift scoring |
-| 6 | `RemoteAgentWatcher` (operator reads control plane) | ⬜ TODO | [spec](phase-6/spec.md) | Cross-runtime in k9s `:ao` table; closes the loop |
+| 6 | `RemoteAgentWatcher` (operator reads control plane) | ✅ DONE | [spec](phase-6/spec.md) | 20 new tests (151 total). RemoteAgentWatcher polls control plane, upserts CRs in agentspec-remote ns. Daemon skips probe for source=control-plane. |
 
 ---
 

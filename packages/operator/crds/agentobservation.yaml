@@ -1,0 +1,157 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agentobservations.agentspec.io
+  annotations:
+    agentspec.io/description: "Live compliance + health observation for AI agent pods"
+spec:
+  group: agentspec.io
+  names:
+    kind: AgentObservation
+    plural: agentobservations
+    singular: agentobservation
+    shortNames:
+      - ao
+    categories:
+      - agentspec
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          description: "Overall health phase: Healthy / Degraded / Unhealthy / Unknown / Pending"
+          jsonPath: .status.phase
+        - name: Grade
+          type: string
+          description: "Compliance grade: A (>=90) / B (75-89) / C (60-74) / D (45-59) / F (<45)"
+          jsonPath: .status.grade
+        - name: Score
+          type: integer
+          description: "Compliance score 0-100"
+          jsonPath: .status.score
+        - name: Model
+          type: string
+          description: "Model reachability: pass / fail / skip / unknown"
+          jsonPath: .status.model.status
+        - name: Violations
+          type: integer
+          description: "Number of open compliance violations"
+          jsonPath: .status.violations
+        - name: Source
+          type: string
+          description: "Data source: agent-sdk (live) or manifest-static (fallback)"
+          jsonPath: .status.source
+        - name: Checked
+          type: date
+          description: "Time of last successful probe"
+          jsonPath: .status.lastChecked
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - agentRef
+              properties:
+                agentRef:
+                  type: object
+                  description: "Reference to the agent being observed"
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                      description: "Name of the agent (Pod or Deployment)"
+                sidecarServiceName:
+                  type: string
+                  description: "Kubernetes Service name for the agentspec-sidecar control plane (port 4001). Defaults to '{agentRef.name}-sidecar'"
+                sidecarPort:
+                  type: integer
+                  description: "Control plane port on the sidecar Service (default: 4001). Must be >= 1024 (privileged ports blocked)."
+                  default: 4001
+                  minimum: 1024
+                  maximum: 65535
+                checkInterval:
+                  type: integer
+                  description: "How often the operator probes the sidecar, in seconds (default: 30)"
+                  default: 30
+                  minimum: 5
+                  maximum: 3600
+                source:
+                  type: string
+                  description: "'sidecar' (default, probed by operator) or 'control-plane' (heartbeat-driven, no sidecar probe)"
+                  default: sidecar
+                  enum: [sidecar, control-plane]
+            status:
+              type: object
+              description: "Operator-managed status — do not edit manually"
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                phase:
+                  type: string
+                  description: "Healthy | Degraded | Unhealthy | Unknown | Pending"
+                grade:
+                  type: string
+                  description: "A | B | C | D | F"
+                score:
+                  type: integer
+                  description: "Compliance score 0-100"
+                source:
+                  type: string
+                  description: "agent-sdk | manifest-static"
+                violations:
+                  type: integer
+                  description: "Count of open compliance issues"
+                lastChecked:
+                  type: string
+                  format: date-time
+                  description: "ISO-8601 timestamp of last probe"
+                model:
+                  type: object
+                  properties:
+                    status:
+                      type: string
+                      description: "pass | fail | skip | unknown"
+                    latencyMs:
+                      type: integer
+                      description: "Model endpoint latency in ms (when status=pass)"
+                summary:
+                  type: object
+                  description: "Aggregate check counts from the last probe"
+                  properties:
+                    passed:
+                      type: integer
+                    failed:
+                      type: integer
+                    warnings:
+                      type: integer
+                    skipped:
+                      type: integer
+                conditions:
+                  type: array
+                  description: "Standard Kubernetes conditions"
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                        description: "Ready | Compliant | ModelReachable"
+                      status:
+                        type: string
+                        description: "True | False | Unknown"
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time

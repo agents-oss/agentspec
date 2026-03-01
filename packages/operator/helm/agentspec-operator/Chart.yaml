@@ -1,0 +1,19 @@
+apiVersion: v2
+name: agentspec-operator
+description: |
+  Kubernetes operator that monitors AI agent pods for compliance, health, and
+  model reachability. Exposes live status via the AgentObservation CRD —
+  visible in k9s as ':ao' with automatic 7-column live table.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - ai-agents
+  - observability
+  - compliance
+  - agentspec
+home: https://github.com/agentspec/agentboot
+sources:
+  - https://github.com/agentspec/agentboot/tree/main/packages/operator
+maintainers:
+  - name: AgentSpec

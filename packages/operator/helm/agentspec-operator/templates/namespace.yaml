@@ -1,0 +1,9 @@
+{{- if .Values.controlPlane.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.controlPlane.namespace | default "agentspec-remote" }}
+  labels:
+    {{- include "agentspec-operator.labels" . | nindent 4 }}
+    agentspec.io/managed-by: operator
+{{- end }}

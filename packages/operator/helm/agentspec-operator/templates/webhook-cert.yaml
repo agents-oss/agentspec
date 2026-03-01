@@ -1,0 +1,36 @@
+{{- if and .Values.webhook.enabled .Values.webhook.certManager.enabled }}
+---
+# Self-signed Issuer — no external CA needed.
+# cert-manager generates a self-signed root CA that issues the webhook cert.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "agentspec-operator.name" . }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentspec-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+# TLS Certificate for the webhook server.
+# cert-manager auto-injects the caBundle into the MutatingWebhookConfiguration
+# via the cert-manager.io/inject-ca-from annotation defined in webhook.yaml.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "agentspec-operator.name" . }}-webhook-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentspec-operator.labels" . | nindent 4 }}
+spec:
+  # Secret name must match the volumeMount in deployment.yaml
+  secretName: {{ .Values.webhook.tls.secretName }}
+  duration: {{ .Values.webhook.tls.duration }}
+  renewBefore: {{ .Values.webhook.tls.renewBefore }}
+  dnsNames:
+    - {{ include "agentspec-operator.name" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "agentspec-operator.name" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    name: {{ include "agentspec-operator.name" . }}-selfsigned
+    kind: Issuer
+{{- end }}

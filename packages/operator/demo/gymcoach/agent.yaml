@@ -1,0 +1,43 @@
+metadata:
+  name: gymcoach
+  version: "1.0.0"
+  description: "AI fitness coaching agent with full compliance"
+
+spec:
+  runtime: python
+  entrypoint: main.py
+
+  model:
+    provider: anthropic
+    name: claude-haiku-4-5-20251001
+    apiKey: $env:ANTHROPIC_API_KEY
+
+  tools:
+    - name: get_workout_plan
+      description: "Generate a personalised workout plan"
+    - name: log_exercise
+      description: "Log a completed exercise session"
+    - name: get_progress
+      description: "Retrieve user progress metrics"
+
+  guardrails:
+    input:
+      - type: pii_scrubber
+        fields: [name, email, phone]
+    output:
+      - type: content_filter
+        policy: safe_messaging
+
+  memory:
+    backend: redis
+    ttl: 86400
+
+  evaluation:
+    datasets:
+      - name: fitness-qa
+        path: evals/fitness-qa.jsonl
+
+  requires:
+    services:
+      - type: redis
+        url: redis://redis:6379

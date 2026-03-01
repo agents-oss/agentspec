@@ -37,6 +37,25 @@ coverage/
 npm-debug.log*
 pnpm-debug.log*
 
+# ── Microsoft Office ──────────────────────────────────────────────────────────
+*.pptx
+*.xlsx
+*.docx
+~$*
+
+# ── Python SDK ────────────────────────────────────────────────────────────────
+packages/sdk-python/.venv/
+packages/sdk-python/__pycache__/
+packages/sdk-python/**/__pycache__/
+packages/sdk-python/**/*.pyc
+packages/sdk-python/.pytest_cache/
+
+# ── Operator (Python) ─────────────────────────────────────────────────────────
+packages/operator/__pycache__/
+packages/operator/**/__pycache__/
+packages/operator/**/*.pyc
+packages/operator/.pytest_cache/
+
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.ots
 commit.txt

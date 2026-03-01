@@ -1,0 +1,140 @@
+---
+# ConfigMap: agent.yaml manifest mounted into both containers
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gymcoach-agent-yaml
+  namespace: demo
+  labels:
+    agentspec.io/agent: gymcoach
+data:
+  agent.yaml: |
+    metadata:
+      name: gymcoach
+      version: "1.0.0"
+      description: "AI fitness coaching agent with full compliance"
+    spec:
+      runtime: python
+      entrypoint: main.py
+      model:
+        provider: anthropic
+        name: claude-haiku-4-5-20251001
+        apiKey: $env:ANTHROPIC_API_KEY
+      tools:
+        - name: get_workout_plan
+          description: "Generate a personalised workout plan"
+        - name: log_exercise
+          description: "Log a completed exercise session"
+        - name: get_progress
+          description: "Retrieve user progress metrics"
+      guardrails:
+        input:
+          - type: pii_scrubber
+            fields: [name, email, phone]
+        output:
+          - type: content_filter
+            policy: safe_messaging
+      memory:
+        backend: redis
+        ttl: 86400
+      requires:
+        services:
+          - type: redis
+            url: redis://redis:6379
+---
+# Deployment: agent container + agentspec-sidecar container (in same pod)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gymcoach
+  namespace: demo
+  labels:
+    agentspec.io/agent: gymcoach
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gymcoach
+  template:
+    metadata:
+      labels:
+        app: gymcoach
+        agentspec.io/agent: gymcoach
+    spec:
+      # MED-2: pod-level security context — all containers inherit runAsNonRoot
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        # ── Agent application container ───────────────────────────────────────
+        - name: gymcoach
+          image: python:3.12.9-slim   # MED-1: pinned patch version, not :latest
+          command: ["python", "-c", "import time; [time.sleep(60) for _ in iter(int, 1)]"]
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agentspec-demo-secrets
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+          ports:
+            - containerPort: 8080
+              name: http
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+        # ── agentspec-sidecar (control plane on port 4001) ───────────────────
+        - name: sidecar
+          image: ghcr.io/agentspec/sidecar:0.1.0   # MED-1: pinned, not :latest
+          env:
+            - name: AGENTSPEC_UPSTREAM_URL
+              value: "http://localhost:8080"
+            - name: AGENTSPEC_MANIFEST_PATH
+              value: "/config/agent.yaml"
+          ports:
+            - containerPort: 4000
+              name: proxy
+            - containerPort: 4001
+              name: control
+          volumeMounts:
+            - name: agent-manifest
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/live
+              port: control
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+      volumes:
+        - name: agent-manifest
+          configMap:
+            name: gymcoach-agent-yaml

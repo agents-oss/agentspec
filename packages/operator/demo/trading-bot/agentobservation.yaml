@@ -1,0 +1,14 @@
+apiVersion: agentspec.io/v1
+kind: AgentObservation
+metadata:
+  name: trading-bot
+  namespace: demo
+  labels:
+    agentspec.io/agent: trading-bot
+    agentspec.io/profile: degraded   # D-grade: no guardrails, model key missing
+spec:
+  agentRef:
+    name: trading-bot
+  sidecarServiceName: trading-bot-sidecar
+  sidecarPort: 4001
+  checkInterval: 30

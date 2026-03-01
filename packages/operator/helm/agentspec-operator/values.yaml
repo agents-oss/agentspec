@@ -1,0 +1,74 @@
+# Default values for agentspec-operator.
+# Override with: helm install agentspec agentspec/operator -f my-values.yaml
+
+operator:
+  image:
+    repository: ghcr.io/agentspec/operator
+    tag: ""   # defaults to Chart.appVersion
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
+
+  # Liveness probe port (Kopf built-in)
+  livenessPort: 8080
+
+  # Extra environment variables for the operator pod
+  env: []
+  # - name: LOG_LEVEL
+  #   value: DEBUG
+
+rbac:
+  # Set to false if you manage RBAC yourself
+  create: true
+  serviceAccountName: agentspec-operator
+
+# Install the AgentObservation CRD automatically
+# Set to false if managing CRDs separately (e.g. via GitOps)
+installCRD: true
+
+# Namespace to watch (leave empty for all namespaces)
+watchNamespace: ""
+
+# MutatingWebhook auto-inject configuration
+webhook:
+  # Set to true to enable the MutatingWebhookConfiguration and webhook server.
+  # Requires cert-manager (or a manually supplied caBundle) for TLS.
+  enabled: false
+
+  certManager:
+    # When true, a self-signed cert-manager Issuer + Certificate are created
+    # and the caBundle is injected automatically.  Requires cert-manager >= 1.x.
+    enabled: true
+
+  # Alternative: supply your own base64-encoded CA bundle (PEM) when
+  # certManager.enabled is false.  Leave empty to use cert-manager.
+  caBundle: ""
+
+  tls:
+    # Name of the k8s Secret that cert-manager (or your own pipeline) populates
+    # with tls.crt / tls.key.  Must match the volumeMount in deployment.yaml.
+    secretName: agentspec-webhook-tls
+    duration: 8760h    # 1 year
+    renewBefore: 720h  # renew 30 days before expiry
+
+  # Sidecar image injected into annotated pods.
+  # Pin to a SHA digest in production for supply-chain security.
+  sidecarImage: "ghcr.io/agentspec/sidecar:latest"
+
+# RemoteAgentWatcher — polls the control plane and upserts AgentObservation CRs
+# for remote agents (Bedrock, Vertex, Docker, local) into a dedicated namespace.
+controlPlane:
+  # Set to true to enable RemoteAgentWatcher. Requires url and apiKey.
+  enabled: false
+  url: ""              # e.g. https://control-plane.agentspec.io
+  apiKey: ""           # admin key for GET /api/v1/agents (X-Admin-Key header)
+  pollInterval: 30     # seconds between polls
+  namespace: agentspec-remote   # namespace where remote CRs are created

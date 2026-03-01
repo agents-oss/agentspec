@@ -1,0 +1,111 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-assistant-agent-yaml
+  namespace: demo
+  labels:
+    agentspec.io/agent: voice-assistant
+data:
+  agent.yaml: |
+    metadata:
+      name: voice-assistant
+      version: "0.1.0"
+      description: "Minimal voice assistant — no model config, no guardrails, no env vars"
+    spec:
+      runtime: python
+      entrypoint: main.py
+      model:
+        provider: openai
+        name: gpt-4o-mini
+        apiKey: $env:OPENAI_API_KEY   # not set
+      tools:
+        - name: transcribe
+          description: "Transcribe audio to text"
+        - name: synthesise
+          description: "Convert text to speech"
+        - name: search
+          description: "Web search"
+        - name: calendar
+          description: "Read/write calendar events"
+      # No guardrails, no memory config, no evaluation datasets
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-assistant
+  namespace: demo
+  labels:
+    agentspec.io/agent: voice-assistant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: voice-assistant
+  template:
+    metadata:
+      labels:
+        app: voice-assistant
+        agentspec.io/agent: voice-assistant
+    spec:
+      # MED-2: pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: voice-assistant
+          image: python:3.12.9-slim   # MED-1: pinned patch version, not :latest
+          command: ["python", "-c", "import time; [time.sleep(60) for _ in iter(int, 1)]"]
+          # No env vars set intentionally — worst-case compliance profile
+          ports:
+            - containerPort: 8080
+              name: http
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+        - name: sidecar
+          image: ghcr.io/agentspec/sidecar:0.1.0   # MED-1: pinned, not :latest
+          env:
+            - name: AGENTSPEC_UPSTREAM_URL
+              value: "http://localhost:8080"
+            - name: AGENTSPEC_MANIFEST_PATH
+              value: "/config/agent.yaml"
+          ports:
+            - containerPort: 4001
+              name: control
+          volumeMounts:
+            - name: agent-manifest
+              mountPath: /config
+              readOnly: true
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+      volumes:
+        - name: agent-manifest
+          configMap:
+            name: voice-assistant-agent-yaml

@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  # gymcoach: A-grade (fully compliant)
+  - gymcoach/deployment.yaml
+  - gymcoach/service.yaml
+  - gymcoach/agentobservation.yaml
+  # trading-bot: D-grade (missing guardrails, model key unset)
+  - trading-bot/deployment.yaml
+  - trading-bot/service.yaml
+  - trading-bot/agentobservation.yaml
+  # voice-assistant: F-grade (minimal, no compliance)
+  - voice-assistant/deployment.yaml
+  - voice-assistant/service.yaml
+  - voice-assistant/agentobservation.yaml

@@ -1,0 +1,14 @@
+apiVersion: agentspec.io/v1
+kind: AgentObservation
+metadata:
+  name: voice-assistant
+  namespace: demo
+  labels:
+    agentspec.io/agent: voice-assistant
+    agentspec.io/profile: non-compliant   # F-grade: no guardrails, no env, no compliance packs
+spec:
+  agentRef:
+    name: voice-assistant
+  sidecarServiceName: voice-assistant-sidecar
+  sidecarPort: 4001
+  checkInterval: 30

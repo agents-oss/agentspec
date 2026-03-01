@@ -1,0 +1,39 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "agentspec-operator.name" . }}-{{ .Release.Namespace }}
+  labels:
+    {{- include "agentspec-operator.labels" . | nindent 4 }}
+rules:
+  # AgentObservation CRD — full CRUD + status patch
+  # create is required by the webhook (auto-creates CR on pod inject)
+  - apiGroups: [agentspec.io]
+    resources: [agentobservations]
+    verbs: [get, list, watch, create, patch, update, delete]
+  - apiGroups: [agentspec.io]
+    resources: [agentobservations/status]
+    verbs: [get, patch, update]
+
+  # Kopf requires these to manage its own internal state
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  # Service/Pod discovery (used for default sidecarServiceName resolution)
+  - apiGroups: [""]
+    resources: [pods, services]
+    verbs: [get, list, watch]
+
+  {{- if .Values.controlPlane.enabled }}
+  # RemoteAgentWatcher: create the agentspec-remote namespace if it doesn't exist.
+  # AgentObservation CRUD in that namespace is already covered by the cluster-scoped
+  # agentobservations rule above.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, create]
+  {{- end }}
+{{- end }}

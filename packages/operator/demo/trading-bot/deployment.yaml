@@ -1,0 +1,109 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trading-bot-agent-yaml
+  namespace: demo
+  labels:
+    agentspec.io/agent: trading-bot
+data:
+  agent.yaml: |
+    metadata:
+      name: trading-bot
+      version: "0.3.0"
+      description: "Algorithmic trading signal agent — guardrails missing, model key unset"
+    spec:
+      runtime: python
+      entrypoint: main.py
+      model:
+        provider: openai
+        name: gpt-4o
+        apiKey: $env:OPENAI_API_KEY   # intentionally NOT set in container env
+      tools:
+        - name: get_market_data
+          description: "Fetch live market prices"
+        - name: generate_signal
+          description: "Generate buy/sell signal"
+        - name: execute_trade
+          description: "Place a trade order"
+      # NOTE: no guardrails block — intentional compliance gap
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-bot
+  namespace: demo
+  labels:
+    agentspec.io/agent: trading-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trading-bot
+  template:
+    metadata:
+      labels:
+        app: trading-bot
+        agentspec.io/agent: trading-bot
+    spec:
+      # MED-2: pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: trading-bot
+          image: python:3.12.9-slim   # MED-1: pinned patch version, not :latest
+          command: ["python", "-c", "import time; [time.sleep(60) for _ in iter(int, 1)]"]
+          # OPENAI_API_KEY deliberately omitted → model check fails
+          ports:
+            - containerPort: 8080
+              name: http
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+        - name: sidecar
+          image: ghcr.io/agentspec/sidecar:0.1.0   # MED-1: pinned, not :latest
+          env:
+            - name: AGENTSPEC_UPSTREAM_URL
+              value: "http://localhost:8080"
+            - name: AGENTSPEC_MANIFEST_PATH
+              value: "/config/agent.yaml"
+          ports:
+            - containerPort: 4001
+              name: control
+          volumeMounts:
+            - name: agent-manifest
+              mountPath: /config
+              readOnly: true
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+      volumes:
+        - name: agent-manifest
+          configMap:
+            name: trading-bot-agent-yaml

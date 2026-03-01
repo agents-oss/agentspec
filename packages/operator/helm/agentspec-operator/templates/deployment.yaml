@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agentspec-operator.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentspec-operator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.operator.replicas }}
+  selector:
+    matchLabels:
+      {{- include "agentspec-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agentspec-operator.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "agentspec-operator.serviceAccountName" . }}
+      # Explicitly opt in here — the SA has automountServiceAccountToken: false
+      # so only this pod (the operator itself) gets the token mounted.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: operator
+          image: {{ include "agentspec-operator.image" . }}
+          imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
+          args:
+            {{- if .Values.watchNamespace }}
+            - --namespace={{ .Values.watchNamespace }}
+            {{- else }}
+            - --all-namespaces
+            {{- end }}
+            - --liveness=http://0.0.0.0:{{ .Values.operator.livenessPort }}/healthz
+            - operator.py
+          env:
+            {{- with .Values.operator.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.webhook.enabled }}
+            - name: WEBHOOK_ENABLED
+              value: "true"
+            - name: AGENTSPEC_SIDECAR_IMAGE
+              value: {{ .Values.webhook.sidecarImage | quote }}
+            - name: WEBHOOK_TLS_CERT_FILE
+              value: /tls/tls.crt
+            - name: WEBHOOK_TLS_KEY_FILE
+              value: /tls/tls.key
+            {{- end }}
+            {{- if .Values.controlPlane.enabled }}
+            - name: CONTROL_PLANE_URL
+              value: {{ .Values.controlPlane.url | quote }}
+            - name: CONTROL_PLANE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agentspec-control-plane
+                  key: apiKey
+            - name: CONTROL_PLANE_POLL_INTERVAL
+              value: {{ .Values.controlPlane.pollInterval | quote }}
+            {{- end }}
+          ports:
+            - name: healthz
+              containerPort: {{ .Values.operator.livenessPort }}
+              protocol: TCP
+            {{- if .Values.webhook.enabled }}
+            - name: webhook
+              containerPort: 9443
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.operator.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          {{- if .Values.webhook.enabled }}
+          volumeMounts:
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+          {{- end }}
+      {{- if .Values.webhook.enabled }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ .Values.webhook.tls.secretName }}
+      {{- end }}
