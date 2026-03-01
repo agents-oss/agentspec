@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 
 import httpx
 import kopf
+from kubernetes_asyncio import client as _k8s_client, config as _k8s_config
+from kubernetes_asyncio.client import CustomObjectsApi
 
 from prober import make_unavailable_probe, probe_agent
 from remote_watcher import RemoteAgentWatcher
@@ -34,6 +36,7 @@ from status import build_status_patch
 logger = logging.getLogger("agentspec.operator")
 
 _remote_watcher: RemoteAgentWatcher | None = None
+_k8s_custom_api: CustomObjectsApi | None = None
 
 # RFC-1123 DNS label: lowercase alphanumeric, hyphens allowed in the middle.
 # Dots are explicitly rejected — a dotted name would escape the namespace scope
@@ -186,25 +189,54 @@ async def reconcile_agent_health(spec, name, namespace, logger, patch, stopped, 
 
         logger.debug(f"[{name}] probing {base_url}")
 
-        await _run_probe(name, base_url, timeout, patch, logger)
+        await _run_probe(name, namespace, base_url, timeout, patch, logger)
 
         # HIGH-1: sleep for the per-resource interval, not a hardcoded global.
         # stopped.wait() returns True immediately when the daemon is cancelled.
         await stopped.wait(interval)
 
 
+async def _patch_status_direct(name: str, namespace: str, status: dict, logger) -> None:
+    """
+    Write status to the Kubernetes API directly via CustomObjectsApi.
+
+    kopf's `patch.status` is only flushed when the handler function returns.
+    For @kopf.daemon handlers that loop indefinitely this never happens, so we
+    must write status ourselves on every probe iteration.
+
+    Falls back silently when _k8s_custom_api is None (outside-cluster / tests).
+    """
+    if _k8s_custom_api is None:
+        return
+    try:
+        # CRDs only support merge-patch, not strategic-merge-patch.
+        await _k8s_custom_api.patch_namespaced_custom_object_status(
+            group="agentspec.io",
+            version="v1",
+            namespace=namespace,
+            plural="agentobservations",
+            name=name,
+            body={"status": status},
+            _content_type="application/merge-patch+json",
+        )
+    except Exception as exc:
+        logger.warning(f"[{name}] direct status patch failed — {exc}")
+
+
 async def _run_probe(
     name: str,
+    namespace: str,
     base_url: str,
     timeout: int,
     patch,
     logger,
 ) -> None:
-    """Execute one probe cycle and update patch.status accordingly."""
+    """Execute one probe cycle and write status to the Kubernetes API."""
     try:
         result = await probe_agent(base_url, timeout=timeout)
         status_patch = build_status_patch(result)
         patch.status.update(status_patch)
+        await _patch_status_direct(name, namespace, status_patch, logger)
 
         logger.info(
             f"[{name}] phase={status_patch['phase']} "
@@ -224,17 +256,21 @@ async def _run_probe(
             f"check that the Service and sidecar container exist: {exc}"
         )
         fallback = make_unavailable_probe(f"ConnectError: {exc}")
-        patch.status.update(build_status_patch(fallback))
-        patch.status["phase"] = "Unknown"
-        patch.status["lastChecked"] = _now_iso()
+        status_patch = build_status_patch(fallback)
+        status_patch["phase"] = "Unknown"
+        status_patch["lastChecked"] = _now_iso()
+        patch.status.update(status_patch)
+        await _patch_status_direct(name, namespace, status_patch, logger)
 
     except Exception as exc:
         # Transient failures (timeouts, 5xx, parse errors) — warn, don't alarm.
         logger.warning(f"[{name}] probe failed (transient?) — {exc}")
         fallback = make_unavailable_probe(str(exc))
-        patch.status.update(build_status_patch(fallback))
-        patch.status["phase"] = "Unknown"
-        patch.status["lastChecked"] = _now_iso()
+        status_patch = build_status_patch(fallback)
+        status_patch["phase"] = "Unknown"
+        status_patch["lastChecked"] = _now_iso()
+        patch.status.update(status_patch)
+        await _patch_status_direct(name, namespace, status_patch, logger)
 
 
 # ── Kopf operator settings ────────────────────────────────────────────────────
@@ -242,12 +278,24 @@ async def _run_probe(
 @kopf.on.startup()
 async def startup(settings: kopf.OperatorSettings, **kwargs):
     """Configure Kopf operator global settings and launch background tasks."""
-    global _remote_watcher
+    global _remote_watcher, _k8s_custom_api
 
     # Reduce noise: only log warnings from internal kopf machinery
     settings.posting.level = logging.WARNING
     settings.persistence.finalizer = "agentspec.io/operator-finalizer"
     logger.info("AgentSpec operator started")
+
+    # Initialise the Kubernetes API client used for direct status patches inside
+    # the daemon while-loop. kopf's `patch.status` is only flushed on handler
+    # exit — for a long-running daemon that never exits we must write status
+    # directly via the CustomObjectsApi on every probe iteration.
+    # NOTE: load_incluster_config() is synchronous in kubernetes_asyncio; do not await it.
+    try:
+        _k8s_config.load_incluster_config()
+        _k8s_custom_api = CustomObjectsApi(_k8s_client.ApiClient())
+        logger.info("kubernetes_asyncio client initialised (in-cluster)")
+    except Exception as exc:
+        logger.warning("Could not load in-cluster k8s config (%s) — direct status patches disabled", exc)
 
     # Phase 2: start the MutatingWebhook server as a background asyncio task.
     # Enabled only when WEBHOOK_ENABLED=true (set by Helm when webhook.enabled=true).

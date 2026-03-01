@@ -70,7 +70,12 @@ async def _probe_parallel(base_url: str, timeout: int) -> tuple[dict, dict]:
 
     async def fetch(path: str) -> dict:
         r = await _CLIENT.get(f"{base_url}{path}", timeout=per_request)
-        r.raise_for_status()
+        # The sidecar always returns a JSON health report in the body, even
+        # when the HTTP status is 503 (sidecar unhealthy/degraded). Accept
+        # 200 and 503 as valid responses so the actual check data is used
+        # instead of discarding it as an error. Any other non-2xx still raises.
+        if r.status_code not in (200, 503):
+            r.raise_for_status()
         return r.json()
 
     results = await asyncio.gather(

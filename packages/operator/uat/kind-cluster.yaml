@@ -1,6 +1,7 @@
 ---
 # kind cluster config for local AgentSpec operator UAT.
-# Creates a single-node cluster with a local registry on port 5001.
+# Pinned to k8s v1.31.4 — stable on Docker Desktop for Mac (arm64 + amd64).
+# Registry mirror removed: we use `kind load docker-image`, not a local registry.
 #
 # Usage:
 #   kind create cluster --name agentspec --config uat/kind-cluster.yaml
@@ -9,6 +10,7 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: agentspec
 nodes:
   - role: control-plane
+    image: kindest/node:v1.31.4
     kubeadmConfigPatches:
       - |
         kind: InitConfiguration
@@ -19,7 +21,3 @@ nodes:
       - containerPort: 30080
         hostPort: 30080
         protocol: TCP
-containerdConfigPatches:
-  - |-
-    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5001"]
-      endpoint = ["http://localhost:5001"]

@@ -8,25 +8,39 @@ metadata:
     agentspec.io/agent: trading-bot
 data:
   agent.yaml: |
+    apiVersion: agentspec.io/v1
+    kind: AgentSpec
     metadata:
       name: trading-bot
       version: "0.3.0"
       description: "Algorithmic trading signal agent — guardrails missing, model key unset"
     spec:
-      runtime: python
-      entrypoint: main.py
       model:
         provider: openai
-        name: gpt-4o
-        apiKey: $env:OPENAI_API_KEY   # intentionally NOT set in container env
+        id: gpt-4o
+        apiKey: sk-agentspec-demo   # literal (not $env:) — env check won't trigger; degraded comes from service below
+      prompts:
+        system: "You are an algorithmic trading assistant. Analyse market data and generate trading signals."
       tools:
-        - name: get_market_data
+        - name: get-market-data
+          type: function
           description: "Fetch live market prices"
-        - name: generate_signal
+        - name: generate-signal
+          type: function
           description: "Generate buy/sell signal"
-        - name: execute_trade
+        - name: execute-trade
+          type: function
           description: "Place a trade order"
-      # NOTE: no guardrails block — intentional compliance gap
+      # NOTE: no guardrails block — intentional compliance gap → grade D
+      evaluation:
+        framework: deepeval
+        datasets:
+          - name: trading-signals-qa
+            path: eval/trading-signals-qa.jsonl   # declared but never run → +evaluated violation (low/-5) → score 55 → D
+      requires:
+        services:
+          - type: redis
+            connection: redis://redis:6379   # unreachable → warning → Degraded phase
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -77,9 +91,9 @@ spec:
         - name: sidecar
           image: ghcr.io/agentspec/sidecar:0.1.0   # MED-1: pinned, not :latest
           env:
-            - name: AGENTSPEC_UPSTREAM_URL
+            - name: UPSTREAM_URL
               value: "http://localhost:8080"
-            - name: AGENTSPEC_MANIFEST_PATH
+            - name: MANIFEST_PATH
               value: "/config/agent.yaml"
           ports:
             - containerPort: 4001

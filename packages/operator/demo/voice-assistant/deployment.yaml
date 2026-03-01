@@ -8,25 +8,31 @@ metadata:
     agentspec.io/agent: voice-assistant
 data:
   agent.yaml: |
+    apiVersion: agentspec.io/v1
+    kind: AgentSpec
     metadata:
       name: voice-assistant
       version: "0.1.0"
       description: "Minimal voice assistant — no model config, no guardrails, no env vars"
     spec:
-      runtime: python
-      entrypoint: main.py
       model:
         provider: openai
-        name: gpt-4o-mini
+        id: gpt-4o-mini
         apiKey: $env:OPENAI_API_KEY   # not set
+      prompts:
+        system: "You are a voice assistant. Help users with transcription, search, and calendar management."
       tools:
         - name: transcribe
+          type: function
           description: "Transcribe audio to text"
         - name: synthesise
+          type: function
           description: "Convert text to speech"
         - name: search
+          type: function
           description: "Web search"
         - name: calendar
+          type: function
           description: "Read/write calendar events"
       # No guardrails, no memory config, no evaluation datasets
 ---
@@ -79,9 +85,9 @@ spec:
         - name: sidecar
           image: ghcr.io/agentspec/sidecar:0.1.0   # MED-1: pinned, not :latest
           env:
-            - name: AGENTSPEC_UPSTREAM_URL
+            - name: UPSTREAM_URL
               value: "http://localhost:8080"
-            - name: AGENTSPEC_MANIFEST_PATH
+            - name: MANIFEST_PATH
               value: "/config/agent.yaml"
           ports:
             - containerPort: 4001

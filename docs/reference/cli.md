@@ -293,8 +293,19 @@ Exit codes: `0` = no drift (or drift without `--exit-code`), `1` = drift detecte
 
 ## `agentspec migrate`
 
-*(Coming soon)* Migrate manifest to latest schema version.
+Migrate an `agent.yaml` manifest to the latest schema version.
 
 ```bash
-agentspec migrate agent.yaml
+agentspec migrate agent.yaml              # migrate in-place
+agentspec migrate agent.yaml --dry-run   # preview changes, no files written
+agentspec migrate agent.yaml -o out.yaml # write result to a different file
 ```
+
+Options:
+- `--dry-run` — print the migrated manifest without writing any files
+- `-o, --output <file>` — write the result to a different file (default: overwrites input)
+
+If the manifest is already at the latest version the command prints a success message and
+exits `0` without modifying any file.
+
+Exit codes: `0` = already up-to-date or migrated successfully, `1` = no migration path found
