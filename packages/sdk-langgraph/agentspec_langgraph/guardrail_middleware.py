@@ -23,10 +23,13 @@ Usage:
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from .events import GuardrailEvent
+
+if TYPE_CHECKING:
+    from .sidecar_client import SidecarClient
 
 
 class PolicyViolationError(Exception):
@@ -172,16 +175,45 @@ class GuardrailMiddleware:
         """
         self._events.clear()
 
-    def new_request_context(self) -> "_RequestContext":
+    def new_request_context(
+        self,
+        request_id: Optional[str] = None,
+        sidecar_client: Optional["SidecarClient"] = None,
+    ) -> "_RequestContext":
         """
         Return a per-request context manager.
 
+        On __aexit__ / __exit__: if a sidecar_client and request_id are provided,
+        all GuardrailEvents recorded during the context are pushed to the sidecar
+        as a fire-and-forget event batch (EventPush reporting path).
+
+        Parameters
+        ----------
+        request_id:
+            The X-Request-ID injected by the sidecar proxy on the incoming request.
+            Required for EventPush. Obtain from the request headers:
+              ``request_id = request.headers.get("x-request-id")``
+        sidecar_client:
+            Optional SidecarClient to push events to. When provided, events are
+            pushed on context exit. When absent, no push occurs.
+
         Usage:
-            async with middleware.new_request_context() as ctx:
+            client = SidecarClient(url="http://localhost:4001")
+            async with middleware.new_request_context(
+                request_id=request.headers.get("x-request-id"),
+                sidecar_client=client,
+            ) as ctx:
                 content = ctx.wrap("pii-detector", pii_fn)(user_input)
-                opa_result = await ctx.enforce_opa(model_id=model_id)
+                await ctx.enforce_opa(model_id=model_id)
         """
-        return _RequestContext(self._reporter, self._opa_url, self._agent_name)
+        return _RequestContext(
+            self._reporter,
+            self._opa_url,
+            self._agent_name,
+            fail_closed=self._fail_closed,
+            request_id=request_id,
+            sidecar_client=sidecar_client,
+        )
 
     def enforce_opa(
         self,
@@ -286,6 +318,9 @@ class _RequestContext:
     """
     Per-request context that isolates guardrail recording.
 
+    On exit, if a sidecar_client and request_id were provided, all GuardrailEvents
+    recorded during the context are pushed to the sidecar (EventPush reporting path).
+
     This is the preferred way to use GuardrailMiddleware in async code.
     """
 
@@ -294,21 +329,60 @@ class _RequestContext:
         reporter: Optional[Any],
         opa_url: Optional[str],
         agent_name: str,
+        fail_closed: bool = False,
+        request_id: Optional[str] = None,
+        sidecar_client: Optional[Any] = None,
     ) -> None:
         self._inner = GuardrailMiddleware(
             reporter=reporter,
             opa_url=opa_url,
             agent_name=agent_name,
+            fail_closed=fail_closed,
         )
+        self._agent_name = agent_name
+        self._request_id = request_id
+        self._sidecar_client = sidecar_client
 
     def __enter__(self) -> "GuardrailMiddleware":
         return self._inner
 
     def __exit__(self, *_: Any) -> None:
-        pass
+        self._push_sync()
 
     async def __aenter__(self) -> "GuardrailMiddleware":
         return self._inner
 
     async def __aexit__(self, *_: Any) -> None:
-        pass
+        await self._push_async()
+
+    def _push_sync(self) -> None:
+        """Push guardrail events synchronously (fire-and-forget)."""
+        if not self._sidecar_client or not self._request_id:
+            return
+        events = self._inner.get_events()
+        if not events:
+            return
+        try:
+            self._sidecar_client.push_events_sync(
+                request_id=self._request_id,
+                agent_name=self._agent_name,
+                events=list(events),
+            )
+        except Exception:
+            pass  # Fire-and-forget — swallow all errors
+
+    async def _push_async(self) -> None:
+        """Push guardrail events asynchronously (fire-and-forget)."""
+        if not self._sidecar_client or not self._request_id:
+            return
+        events = self._inner.get_events()
+        if not events:
+            return
+        try:
+            await self._sidecar_client.push_events_async(
+                request_id=self._request_id,
+                agent_name=self._agent_name,
+                events=list(events),
+            )
+        except Exception:
+            pass  # Fire-and-forget — swallow all errors
