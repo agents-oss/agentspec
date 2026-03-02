@@ -92,6 +92,18 @@ When these headers are absent, the proxy uses worst-case defaults (`guardrails_i
 
 The proxy sets `X-AgentSpec-OPA-Violations` on every response where violations fired (regardless of mode), so clients and upstream tooling can observe policy gaps.
 
+In `enforce` mode, the sidecar returns a structured error **before** forwarding to the upstream agent:
+
+```
+HTTP/1.1 403 Forbidden
+X-AgentSpec-OPA-Violations: pii_detector_not_invoked
+Content-Type: application/json
+
+{"error":"PolicyViolation","blocked":true,"violations":["pii_detector_not_invoked"],"message":"Request blocked by OPA policy: pii_detector_not_invoked"}
+```
+
+When OPA is unreachable the proxy **fails open** (forwards the request with a warning log) regardless of mode. Set `OPA_PROXY_MODE=off` to silence OPA calls entirely while keeping `OPA_URL` set for `/gap`.
+
 ---
 
 ## Ports
