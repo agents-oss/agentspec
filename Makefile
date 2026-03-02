@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: help install build test lint typecheck clean schema docs docs-build docs-preview
-.PHONY: demo demo-cluster demo-operator demo-deploy demo-verify demo-status demo-logs demo-down demo-patch demo-reset demo-opa
+.PHONY: demo demo-provision demo-cluster demo-operator demo-deploy demo-verify demo-e2e demo-status demo-logs demo-down demo-patch demo-reset demo-opa
 
 # ── Demo cluster config ────────────────────────────────────────────────────────
 DEMO_CLUSTER   := agentspec
@@ -43,11 +43,13 @@ help:
 	@printf "    $(GREEN)docs-preview$(RESET)   Preview the built doc site locally\n"
 	@echo ""
 	@printf "  $(BOLD)Demo (requires kind + helm + docker)$(RESET)\n"
-	@printf "    $(GREEN)demo$(RESET)           Full demo: kind cluster + operator + agents + verify\n"
+	@printf "    $(GREEN)demo$(RESET)           Full demo: cluster + operator + agents + verify\n"
+	@printf "    $(GREEN)demo-provision$(RESET) Provision cluster + operator + agents (no verify)\n"
 	@printf "    $(GREEN)demo-cluster$(RESET)   Create the kind cluster (idempotent)\n"
 	@printf "    $(GREEN)demo-operator$(RESET)  Build + load operator image, deploy via Helm\n"
 	@printf "    $(GREEN)demo-deploy$(RESET)    Deploy all 5 demo agents (3 manifest-static + 2 agent-sdk)\n"
 	@printf "    $(GREEN)demo-verify$(RESET)    Run the UAT verify script\n"
+	@printf "    $(GREEN)demo-e2e$(RESET)      Run automated e2e pytest suite (proxy+OPA+gap+events)\n"
 	@printf "    $(GREEN)demo-status$(RESET)    Show live AgentObservation phase/grade/score table\n"
 	@printf "    $(GREEN)demo-patch$(RESET)     Live patch: voice-assistant C→A + research-agent F→A\n"
 	@printf "    $(GREEN)demo-reset$(RESET)     Restore agents to pre-patch state (replay the demo)\n"
@@ -138,14 +140,23 @@ demo-cluster:
 	fi
 
 ## Build operator image + load into kind + deploy via Helm
+## Idempotent: skips docker build + kind load if the operator deployment is already running.
 demo-operator: demo-cluster
-	@printf "\n  $(BOLD)Building operator image $(OPERATOR_IMAGE)...$(RESET)\n"
-	docker build -t $(OPERATOR_IMAGE) packages/operator
-	@printf "  $(BOLD)Loading image into kind cluster '$(DEMO_CLUSTER)'...$(RESET)\n"
-	kind load docker-image $(OPERATOR_IMAGE) --name $(DEMO_CLUSTER)
+	@_op_ready=$$(kubectl get deployment agentspec-operator \
+	  -n $(DEMO_OP_NS) --context kind-$(DEMO_CLUSTER) \
+	  -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo 0); \
+	if [ "$$_op_ready" = "1" ]; then \
+	  printf "  $(CYAN)operator$(RESET)   already running — skipping build & image load\n"; \
+	else \
+	  printf "\n  $(BOLD)Building operator image $(OPERATOR_IMAGE)...$(RESET)\n"; \
+	  docker build -t $(OPERATOR_IMAGE) packages/operator; \
+	  printf "  $(BOLD)Loading image into kind cluster '$(DEMO_CLUSTER)'...$(RESET)\n"; \
+	  kind load docker-image $(OPERATOR_IMAGE) --name $(DEMO_CLUSTER); \
+	fi
 	@printf "  $(BOLD)Deploying operator via Helm...$(RESET)\n"
-	helm upgrade --install agentspec-operator \
+	helm upgrade --install agentspec \
 	  packages/operator/helm/agentspec-operator \
+	  --kube-context kind-$(DEMO_CLUSTER) \
 	  --namespace $(DEMO_OP_NS) --create-namespace \
 	  --set operator.image.repository=agentspec/operator \
 	  --set operator.image.tag=dev \
@@ -156,20 +167,40 @@ demo-operator: demo-cluster
 ## Agents: gymcoach (A/manifest-static), trading-bot (D/manifest-static),
 ##         voice-assistant (C/manifest-static), fitness-tracker (A/agent-sdk),
 ##         research-agent (F/agent-sdk)
+## Idempotent: skips apply + rollout-wait if all 5 agents are already running.
 demo-deploy:
-	@printf "\n  $(BOLD)Deploying demo agents...$(RESET)\n"
-	kubectl apply -k packages/operator/demo/
-	@printf "  $(BOLD)Waiting for pods to be ready...$(RESET)\n"
-	kubectl rollout status \
-	  deployment/gymcoach deployment/trading-bot deployment/voice-assistant \
-	  deployment/fitness-tracker deployment/research-agent \
-	  -n $(DEMO_AGENT_NS) --timeout=120s
+	@_ar=$$(kubectl get deployments \
+	  gymcoach trading-bot voice-assistant fitness-tracker research-agent \
+	  -n $(DEMO_AGENT_NS) --context kind-$(DEMO_CLUSTER) \
+	  -o jsonpath='{range .items[*]}{.status.availableReplicas},{end}' 2>/dev/null || echo ""); \
+	_count=$$(echo "$$_ar" | tr ',' '\n' | grep -c "^1$$" 2>/dev/null || echo 0); \
+	if [ "$$_count" = "5" ]; then \
+	  printf "  $(CYAN)agents$(RESET)     all 5 demo agents already running — skipping deploy\n"; \
+	else \
+	  printf "\n  $(BOLD)Deploying demo agents...$(RESET)\n"; \
+	  kubectl apply -k packages/operator/demo/ --context kind-$(DEMO_CLUSTER); \
+	  printf "  $(BOLD)Waiting for pods to be ready...$(RESET)\n"; \
+	  kubectl rollout status \
+	    deployment/gymcoach deployment/trading-bot deployment/voice-assistant \
+	    deployment/fitness-tracker deployment/research-agent \
+	    -n $(DEMO_AGENT_NS) --context kind-$(DEMO_CLUSTER) --timeout=180s; \
+	fi
 
 ## Run the UAT verify script
 demo-verify:
 	@bash packages/operator/uat/verify.sh \
 	  --namespace $(DEMO_OP_NS) \
 	  --demo-namespace $(DEMO_AGENT_NS)
+
+## Run automated e2e scenarios against the live demo cluster
+demo-e2e:
+	@printf "\n  $(BOLD)Running e2e test suite against demo cluster '$(DEMO_CLUSTER)'...$(RESET)\n\n"
+	cd packages/operator/uat/e2e && \
+	  pip install -q -e . && \
+	  pytest -v
+
+## Provision the demo cluster (kind + operator + agents, no verify step)
+demo-provision: demo-cluster demo-operator demo-deploy
 
 ## Full demo: cluster + operator + agents + verify
 demo: demo-cluster demo-operator demo-deploy demo-verify
