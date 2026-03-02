@@ -69,9 +69,28 @@ helm upgrade  my-agent ./out/ -f out/values.yaml
 | `CONTROL_PLANE_PORT` | No | `4001` | Control plane listen port |
 | `ANTHROPIC_API_KEY` | No | — | Enables LLM gap analysis (`GET /agentspec/gap`) |
 | `AUDIT_RING_SIZE` | No | `1000` | Max audit ring entries retained in memory |
-| `OPA_URL` | No | — | OPA base URL (e.g. `http://localhost:8181`). When set, `/gap` calls OPA for behavioral violations. Fails-open if OPA is unreachable. |
+| `OPA_URL` | No | — | OPA base URL (e.g. `http://localhost:8181`). When set, `/gap` calls OPA for behavioral violations AND the proxy evaluates every request. Fails-open if OPA is unreachable. |
+| `OPA_PROXY_MODE` | No | `track` | Per-request OPA mode on the proxy (port 4000). `track` — record violations in the audit ring and add `X-AgentSpec-OPA-Violations` header, but forward the request. `enforce` — block with `403 PolicyViolation` before forwarding. `off` — disable proxy OPA checks entirely. |
 
 `UPSTREAM_URL` and `MANIFEST_PATH` must be set correctly. The sidecar will fail to start if `UPSTREAM_URL` is not a valid `http://` or `https://` URL, or if port values are non-integer.
+
+---
+
+---
+
+## OPA Request Headers
+
+When `OPA_URL` is set, the proxy reads these headers from the incoming request to populate the OPA input document. Set them from your agent code (or `GuardrailMiddleware`) to give OPA the full runtime context it needs to enforce policies accurately.
+
+| Header | Example | Description |
+|--------|---------|-------------|
+| `X-AgentSpec-Guardrails-Invoked` | `pii-detector,toxicity-filter` | Comma-separated list of guardrail types actually run on this request |
+| `X-AgentSpec-Tools-Called` | `plan-workout,log-session` | Comma-separated list of tools invoked |
+| `X-AgentSpec-User-Confirmed` | `true` | Set to `true` if the user explicitly confirmed a destructive action |
+
+When these headers are absent, the proxy uses worst-case defaults (`guardrails_invoked: []`, `tools_called: []`). In `track` mode this records a violation. In `enforce` mode, any declared guardrail will cause a 403.
+
+The proxy sets `X-AgentSpec-OPA-Violations` on every response where violations fired (regardless of mode), so clients and upstream tooling can observe policy gaps.
 
 ---
 

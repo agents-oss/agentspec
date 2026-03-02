@@ -38,6 +38,8 @@ _INJECT_KEY = "agentspec.io/inject"
 _AGENT_NAME_KEY = "agentspec.io/agent-name"
 _CONFIGMAP_KEY = "agentspec.io/manifest-configmap"
 _CHECK_INTERVAL_KEY = "agentspec.io/check-interval"
+# Per-pod OPA proxy mode override: agentspec.io/opa-proxy-mode: enforce
+_OPA_PROXY_MODE_KEY = "agentspec.io/opa-proxy-mode"
 
 # ── Sidecar image ─────────────────────────────────────────────────────────────
 
@@ -55,12 +57,58 @@ _MAX_BODY_BYTES = 1_048_576
 _CHECK_INTERVAL_MIN = 5
 _CHECK_INTERVAL_DEFAULT = 30
 
+# ── Operator-level configuration (set via Helm values → env vars) ─────────────
+
+# Injection trigger mode:
+#   "annotation" — only inject pods with agentspec.io/inject: "true" (default)
+#   "default"    — inject all pods; opt-out with agentspec.io/inject: "false"
+_INJECT_MODE: str = os.getenv("AGENTSPEC_INJECT_MODE", "annotation")
+
+# Namespaces excluded from injection even in "default" mode.
+# Comma-separated. Checked by the webhook handler as a defence-in-depth layer
+# on top of the MutatingWebhookConfiguration's namespaceSelector.
+_EXCLUDED_NAMESPACES: frozenset[str] = frozenset(
+    ns.strip()
+    for ns in os.getenv(
+        "AGENTSPEC_EXCLUDED_NAMESPACES",
+        "kube-system,kube-public,kube-node-lease",
+    ).split(",")
+    if ns.strip()
+)
+
+# OPA injection — injects an OPA container alongside the sidecar when enabled.
+_OPA_ENABLED: bool = os.getenv("AGENTSPEC_OPA_ENABLED", "false").lower() == "true"
+_OPA_IMAGE: str = os.getenv("AGENTSPEC_OPA_IMAGE", "openpolicyagent/opa:0.70.0-static")
+# Default per-request proxy mode for all injected pods: "track" | "enforce" | "off"
+_OPA_PROXY_MODE: str = os.getenv("AGENTSPEC_OPA_PROXY_MODE", "track")
+# Suffix used to derive the OPA policy ConfigMap name: "{agent-name}-{suffix}"
+_OPA_POLICY_CONFIGMAP_SUFFIX: str = os.getenv(
+    "AGENTSPEC_OPA_POLICY_CONFIGMAP_SUFFIX", "opa-policy"
+)
+
 
 # ── Pure business logic (unit-testable, no I/O) ───────────────────────────────
 
-def should_inject(annotations: dict[str, str]) -> bool:
-    """Return True only when agentspec.io/inject == "true" (exact, lowercase)."""
-    return annotations.get(_INJECT_KEY) == "true"
+def should_inject(
+    annotations: dict[str, str],
+    inject_mode: str = _INJECT_MODE,
+) -> bool:
+    """
+    Return True when this pod should receive sidecar injection.
+
+    annotation mode (default, safe):
+        Only inject when agentspec.io/inject == "true" (explicit opt-in).
+        All other pods — including those with no annotation — are left untouched.
+
+    default mode:
+        Inject unless agentspec.io/inject == "false" (explicit opt-out).
+        Use this for full-namespace coverage without annotating every Deployment.
+        Requires excludedNamespaces and namespaceSelector to be correctly set.
+    """
+    inject_val = annotations.get(_INJECT_KEY)
+    if inject_mode == "default":
+        return inject_val != "false"
+    return inject_val == "true"
 
 
 def is_sidecar_present(pod_spec: dict) -> bool:
@@ -72,17 +120,31 @@ def is_sidecar_present(pod_spec: dict) -> bool:
 def build_sidecar_patch(
     pod_spec: dict,
     annotations: dict[str, str],
+    inject_mode: str = _INJECT_MODE,
+    opa_enabled: bool = _OPA_ENABLED,
+    opa_image: str = _OPA_IMAGE,
+    opa_proxy_mode: str = _OPA_PROXY_MODE,
+    opa_policy_configmap_suffix: str = _OPA_POLICY_CONFIGMAP_SUFFIX,
 ) -> list[dict[str, Any]]:
     """
-    Build the JSON Patch operations to inject the agentspec-sidecar container.
+    Build the JSON Patch operations to inject the agentspec-sidecar container
+    (and optionally an OPA enforcement sidecar) into a pod.
 
-    Returns an empty list if:
-    - The pod lacks the inject annotation (or it's not "true")
-    - The sidecar is already present (idempotent)
+    Returns an empty list when:
+    - should_inject() returns False (based on inject_mode + annotations)
+    - The sidecar is already present (idempotent guard)
+
+    When opa_enabled is True, additionally injects:
+    - agentspec-opa container (OPA server on port 8181)
+    - agentspec-opa-policy volume (ConfigMap: "{agent-name}-{suffix}")
+    - OPA_URL + OPA_PROXY_MODE env vars on the sidecar
+
+    Per-pod mode override via annotation:
+      agentspec.io/opa-proxy-mode: enforce  (overrides the global proxyMode)
 
     Does NOT contact k8s — pure function.
     """
-    if not should_inject(annotations):
+    if not should_inject(annotations, inject_mode):
         return []
 
     if is_sidecar_present(pod_spec):
@@ -90,12 +152,20 @@ def build_sidecar_patch(
 
     configmap_name = annotations.get(_CONFIGMAP_KEY) or _DEFAULT_CONFIGMAP
     check_interval = annotations.get(_CHECK_INTERVAL_KEY, "")
+    agent_name = annotations.get(_AGENT_NAME_KEY, "").strip()
 
-    env: list[dict] = [
+    # Resolve effective OPA proxy mode: annotation overrides global default
+    effective_opa_mode = annotations.get(_OPA_PROXY_MODE_KEY) or opa_proxy_mode
+
+    # ── Sidecar container ──────────────────────────────────────────────────
+    sidecar_env: list[dict] = [
         {"name": "AGENTSPEC_MANIFEST_PATH", "value": "/app/agent.yaml"},
     ]
     if check_interval:
-        env.append({"name": "AGENTSPEC_CHECK_INTERVAL", "value": check_interval})
+        sidecar_env.append({"name": "AGENTSPEC_CHECK_INTERVAL", "value": check_interval})
+    if opa_enabled:
+        sidecar_env.append({"name": "OPA_URL", "value": "http://localhost:8181"})
+        sidecar_env.append({"name": "OPA_PROXY_MODE", "value": effective_opa_mode})
 
     sidecar: dict[str, Any] = {
         "name": "agentspec-sidecar",
@@ -104,7 +174,7 @@ def build_sidecar_patch(
             {"containerPort": 4000},
             {"containerPort": 4001},
         ],
-        "env": env,
+        "env": sidecar_env,
         "volumeMounts": [
             {
                 "name": "agent-yaml",
@@ -114,17 +184,63 @@ def build_sidecar_patch(
         ],
     }
 
+    # Track whether the pod already has a volumes list so we create vs. append
+    has_volumes = pod_spec.get("volumes") is not None
+
+    def _volume_op(volume_spec: dict[str, Any]) -> dict[str, Any]:
+        """Append to existing volumes list or create it on first call."""
+        nonlocal has_volumes
+        if has_volumes:
+            path = "/spec/volumes/-"
+        else:
+            path = "/spec/volumes"
+            has_volumes = True
+        return {"op": "add", "path": path, "value": volume_spec}
+
     ops: list[dict[str, Any]] = [
         {"op": "add", "path": "/spec/containers/-", "value": sidecar},
-        {
-            "op": "add",
-            "path": "/spec/volumes/-" if (pod_spec.get("volumes") is not None) else "/spec/volumes",
-            "value": {
-                "name": "agent-yaml",
-                "configMap": {"name": configmap_name},
-            },
-        },
+        _volume_op({"name": "agent-yaml", "configMap": {"name": configmap_name}}),
     ]
+
+    # ── OPA container (optional) ───────────────────────────────────────────
+    if opa_enabled:
+        policy_cm_name = f"{agent_name or 'agent'}-{opa_policy_configmap_suffix}"
+        opa_container: dict[str, Any] = {
+            "name": "agentspec-opa",
+            "image": opa_image,
+            "args": [
+                "run",
+                "--server",
+                "--addr=:8181",
+                "--log-level=error",
+                "/policies/policy.rego",
+                "/policies/data.json",
+            ],
+            "ports": [{"containerPort": 8181}],
+            "volumeMounts": [
+                {
+                    "name": "agentspec-opa-policy",
+                    "mountPath": "/policies",
+                    "readOnly": True,
+                }
+            ],
+            "securityContext": {
+                "allowPrivilegeEscalation": False,
+                "readOnlyRootFilesystem": True,
+                "runAsNonRoot": True,
+                "runAsUser": 1000,
+                "capabilities": {"drop": ["ALL"]},
+            },
+            "resources": {
+                "requests": {"cpu": "25m", "memory": "64Mi"},
+                "limits": {"cpu": "100m", "memory": "128Mi"},
+            },
+        }
+        ops.append({"op": "add", "path": "/spec/containers/-", "value": opa_container})
+        ops.append(_volume_op({
+            "name": "agentspec-opa-policy",
+            "configMap": {"name": policy_cm_name},
+        }))
 
     return ops
 
@@ -304,6 +420,12 @@ def _build_starlette_app(api_client=None):
         # pod_uid is empty on CREATE (before persistence) — handled in
         # _create_agent_observation by omitting the ownerReference.
         pod_uid = pod_meta.get("uid", "")
+
+        # Defence-in-depth: skip injection for excluded namespaces regardless of
+        # what the MutatingWebhookConfiguration's namespaceSelector passes through.
+        if namespace in _EXCLUDED_NAMESPACES:
+            logger.debug(f"[webhook] skipping injection — namespace {namespace!r} is excluded")
+            return JSONResponse(build_admission_response(uid, []))
 
         patch_ops = build_sidecar_patch(pod_spec, annotations)
 

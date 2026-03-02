@@ -7,6 +7,10 @@ export interface AuditEntry {
   durationMs?: number
   upstreamMs?: number
   excerpt?: string
+  /** OPA violation IDs that fired on this request (track or enforce mode). */
+  opaViolations?: string[]
+  /** true when enforce mode blocked this request with a 403 before upstream. */
+  opaBlocked?: boolean
 }
 
 /**

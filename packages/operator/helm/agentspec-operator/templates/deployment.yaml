@@ -48,6 +48,20 @@ spec:
               value: /tls/tls.crt
             - name: WEBHOOK_TLS_KEY_FILE
               value: /tls/tls.key
+            # Injection behaviour
+            - name: AGENTSPEC_INJECT_MODE
+              value: {{ .Values.webhook.injectMode | quote }}
+            - name: AGENTSPEC_EXCLUDED_NAMESPACES
+              value: {{ join "," .Values.webhook.excludedNamespaces | quote }}
+            # OPA enforcement sidecar
+            - name: AGENTSPEC_OPA_ENABLED
+              value: {{ .Values.webhook.opa.enabled | quote }}
+            - name: AGENTSPEC_OPA_IMAGE
+              value: {{ .Values.webhook.opa.image | quote }}
+            - name: AGENTSPEC_OPA_PROXY_MODE
+              value: {{ .Values.webhook.opa.proxyMode | quote }}
+            - name: AGENTSPEC_OPA_POLICY_CONFIGMAP_SUFFIX
+              value: {{ .Values.webhook.opa.policyConfigMapSuffix | quote }}
             {{- end }}
             {{- if .Values.controlPlane.enabled }}
             - name: CONTROL_PLANE_URL

@@ -348,6 +348,180 @@ class TestMutateHandler:
         assert "patch" not in resp.json()["response"]
 
 
+# ── should_inject — default mode ──────────────────────────────────────────────
+
+class TestShouldInjectDefaultMode:
+    def test_no_annotation_injects_in_default_mode(self):
+        assert should_inject({}, inject_mode="default") is True
+
+    def test_inject_false_opts_out_in_default_mode(self):
+        assert should_inject({"agentspec.io/inject": "false"}, inject_mode="default") is False
+
+    def test_inject_true_still_injects_in_default_mode(self):
+        assert should_inject({"agentspec.io/inject": "true"}, inject_mode="default") is True
+
+    def test_other_annotations_do_not_opt_out_in_default_mode(self):
+        assert should_inject({"app": "my-service"}, inject_mode="default") is True
+
+    def test_annotation_mode_unchanged_by_default_mode_param(self):
+        # annotation mode still requires explicit opt-in
+        assert should_inject({}, inject_mode="annotation") is False
+        assert should_inject({"agentspec.io/inject": "true"}, inject_mode="annotation") is True
+
+
+# ── build_sidecar_patch — inject_mode ─────────────────────────────────────────
+
+class TestBuildSidecarPatchInjectMode:
+    def test_default_mode_injects_unannotated_pod(self):
+        patch = build_sidecar_patch(_pod_spec(), {}, inject_mode="default")
+        assert len(patch) > 0
+
+    def test_default_mode_skips_opted_out_pod(self):
+        annotations = {"agentspec.io/inject": "false"}
+        patch = build_sidecar_patch(_pod_spec(), annotations, inject_mode="default")
+        assert patch == []
+
+    def test_annotation_mode_skips_unannotated_pod(self):
+        patch = build_sidecar_patch(_pod_spec(), {}, inject_mode="annotation")
+        assert patch == []
+
+
+# ── build_sidecar_patch — OPA injection ───────────────────────────────────────
+
+class TestBuildSidecarPatchOPA:
+    def _annotated(self, extra=None):
+        return {"agentspec.io/inject": "true", "agentspec.io/agent-name": "gymcoach", **(extra or {})}
+
+    def test_opa_disabled_no_opa_container(self):
+        patch = build_sidecar_patch(_pod_spec(), self._annotated(), opa_enabled=False)
+        names = [op["value"]["name"] for op in patch if op.get("path") == "/spec/containers/-"]
+        assert "agentspec-opa" not in names
+
+    def test_opa_enabled_adds_opa_container(self):
+        patch = build_sidecar_patch(_pod_spec(), self._annotated(), opa_enabled=True)
+        names = [op["value"]["name"] for op in patch if op.get("path") == "/spec/containers/-"]
+        assert "agentspec-opa" in names
+
+    def test_opa_enabled_adds_opa_policy_volume(self):
+        patch = build_sidecar_patch(_pod_spec(), self._annotated(), opa_enabled=True)
+        volume_ops = [op for op in patch if "volumes" in op.get("path", "")]
+        volume_names = [op["value"]["name"] for op in volume_ops]
+        assert "agentspec-opa-policy" in volume_names
+
+    def test_opa_volume_configmap_name_uses_agent_name(self):
+        patch = build_sidecar_patch(
+            _pod_spec(), self._annotated(), opa_enabled=True,
+            opa_policy_configmap_suffix="opa-policy",
+        )
+        volume_ops = [op for op in patch if "volumes" in op.get("path", "")]
+        opa_vol = next(op for op in volume_ops if op["value"]["name"] == "agentspec-opa-policy")
+        assert opa_vol["value"]["configMap"]["name"] == "gymcoach-opa-policy"
+
+    def test_opa_enabled_sets_opa_url_env_on_sidecar(self):
+        patch = build_sidecar_patch(_pod_spec(), self._annotated(), opa_enabled=True)
+        sidecar_op = next(op for op in patch if op.get("value", {}).get("name") == "agentspec-sidecar")
+        env = {e["name"]: e["value"] for e in sidecar_op["value"].get("env", [])}
+        assert env.get("OPA_URL") == "http://localhost:8181"
+
+    def test_opa_enabled_sets_opa_proxy_mode_env(self):
+        patch = build_sidecar_patch(
+            _pod_spec(), self._annotated(), opa_enabled=True, opa_proxy_mode="enforce"
+        )
+        sidecar_op = next(op for op in patch if op.get("value", {}).get("name") == "agentspec-sidecar")
+        env = {e["name"]: e["value"] for e in sidecar_op["value"].get("env", [])}
+        assert env.get("OPA_PROXY_MODE") == "enforce"
+
+    def test_per_pod_annotation_overrides_global_opa_mode(self):
+        annotations = {
+            "agentspec.io/inject": "true",
+            "agentspec.io/agent-name": "gymcoach",
+            "agentspec.io/opa-proxy-mode": "enforce",  # pod-level override
+        }
+        patch = build_sidecar_patch(
+            _pod_spec(), annotations, opa_enabled=True, opa_proxy_mode="track"
+        )
+        sidecar_op = next(op for op in patch if op.get("value", {}).get("name") == "agentspec-sidecar")
+        env = {e["name"]: e["value"] for e in sidecar_op["value"].get("env", [])}
+        assert env.get("OPA_PROXY_MODE") == "enforce"
+
+    def test_opa_disabled_no_opa_url_env_on_sidecar(self):
+        patch = build_sidecar_patch(_pod_spec(), self._annotated(), opa_enabled=False)
+        sidecar_op = next(op for op in patch if op.get("value", {}).get("name") == "agentspec-sidecar")
+        env_names = [e["name"] for e in sidecar_op["value"].get("env", [])]
+        assert "OPA_URL" not in env_names
+        assert "OPA_PROXY_MODE" not in env_names
+
+    def test_opa_container_exposes_port_8181(self):
+        patch = build_sidecar_patch(_pod_spec(), self._annotated(), opa_enabled=True)
+        opa_op = next(op for op in patch if op.get("value", {}).get("name") == "agentspec-opa")
+        ports = [p["containerPort"] for p in opa_op["value"].get("ports", [])]
+        assert 8181 in ports
+
+    def test_opa_container_has_security_context(self):
+        patch = build_sidecar_patch(_pod_spec(), self._annotated(), opa_enabled=True)
+        opa_op = next(op for op in patch if op.get("value", {}).get("name") == "agentspec-opa")
+        sc = opa_op["value"].get("securityContext", {})
+        assert sc.get("allowPrivilegeEscalation") is False
+        assert sc.get("runAsNonRoot") is True
+
+    def test_volume_paths_correct_when_pod_has_no_existing_volumes(self):
+        # First volume op → "/spec/volumes" (creates array)
+        # Second volume op → "/spec/volumes/-" (appends)
+        spec = _pod_spec()  # no volumes key
+        patch = build_sidecar_patch(spec, self._annotated(), opa_enabled=True)
+        vol_ops = [op for op in patch if "volumes" in op.get("path", "")]
+        assert vol_ops[0]["path"] == "/spec/volumes"
+        assert vol_ops[1]["path"] == "/spec/volumes/-"
+
+    def test_volume_paths_correct_when_pod_has_existing_volumes(self):
+        # Both volume ops → "/spec/volumes/-" (append)
+        spec = {**_pod_spec(), "volumes": [{"name": "existing", "emptyDir": {}}]}
+        patch = build_sidecar_patch(spec, self._annotated(), opa_enabled=True)
+        vol_ops = [op for op in patch if "volumes" in op.get("path", "")]
+        assert all(op["path"] == "/spec/volumes/-" for op in vol_ops)
+
+
+# ── Excluded namespaces ───────────────────────────────────────────────────────
+
+class TestExcludedNamespaces:
+    def _client_with_excluded(self, excluded_ns: str):
+        import os
+        from unittest.mock import patch as mock_patch
+        # Reload module with AGENTSPEC_EXCLUDED_NAMESPACES env set
+        with mock_patch.dict(os.environ, {"AGENTSPEC_EXCLUDED_NAMESPACES": excluded_ns}):
+            import importlib
+            spec = importlib.util.spec_from_file_location("wh_exc", _WEBHOOK_PATH)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        from starlette.testclient import TestClient
+        return TestClient(mod._build_starlette_app(api_client=None)), mod
+
+    def _review(self, namespace: str, annotations=None):
+        return {
+            "request": {
+                "uid": "uid-exc",
+                "name": "test-pod",
+                "namespace": namespace,
+                "object": {
+                    "metadata": {"annotations": annotations or {"agentspec.io/inject": "true"}},
+                    "spec": {"containers": [{"name": "agent", "image": "x"}]},
+                },
+            }
+        }
+
+    def test_excluded_namespace_returns_no_patch(self):
+        client, _ = self._client_with_excluded("my-system")
+        resp = client.post("/mutate", json=self._review("my-system"))
+        assert resp.status_code == 200
+        assert "patch" not in resp.json()["response"]
+
+    def test_non_excluded_namespace_returns_patch(self):
+        client, _ = self._client_with_excluded("my-system")
+        resp = client.post("/mutate", json=self._review("production"))
+        assert resp.status_code == 200
+        assert "patch" in resp.json()["response"]
+
+
 # ── H3: Log injection prevention ──────────────────────────────────────────────
 
 class TestLogInjectionPrevention:

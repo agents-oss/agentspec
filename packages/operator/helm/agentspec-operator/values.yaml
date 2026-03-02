@@ -37,11 +37,62 @@ installCRD: true
 # Namespace to watch (leave empty for all namespaces)
 watchNamespace: ""
 
-# MutatingWebhook auto-inject configuration
+# ── MutatingWebhook configuration ────────────────────────────────────────────
 webhook:
   # Set to true to enable the MutatingWebhookConfiguration and webhook server.
   # Requires cert-manager (or a manually supplied caBundle) for TLS.
   enabled: false
+
+  # Injection trigger mode — controls which pods receive sidecar injection.
+  #
+  #   annotation (default, safe)
+  #     Only pods annotated with agentspec.io/inject: "true" are injected.
+  #     All other pods are left untouched. Use this when onboarding agents
+  #     incrementally or when you want explicit opt-in per workload.
+  #
+  #   default
+  #     Every pod in a targeted namespace is injected unless it carries
+  #     agentspec.io/inject: "false" (opt-out). Use this when you want
+  #     full-namespace coverage without annotating every Deployment.
+  #     Make sure excludedNamespaces and namespaceSelector are configured
+  #     to avoid injecting into system workloads.
+  injectMode: annotation
+
+  # Kubernetes namespaceSelector for the MutatingWebhookConfiguration.
+  # Determines which namespaces kube-apiserver sends AdmissionReview requests
+  # to this webhook. Evaluated at the cluster level before the webhook is called.
+  #
+  # Default: exclude kube-system and kube-public. The operator's own namespace
+  # is always appended by the webhook.yaml template regardless of this setting.
+  #
+  # Example — only target namespaces explicitly labeled for agentspec:
+  #   namespaceSelector:
+  #     matchLabels:
+  #       agentspec.io/enabled: "true"
+  #
+  # Example — target all except system namespaces:
+  #   namespaceSelector:
+  #     matchExpressions:
+  #       - key: kubernetes.io/metadata.name
+  #         operator: NotIn
+  #         values: [kube-system, kube-public, kube-node-lease]
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - kube-system
+          - kube-public
+
+  # Namespaces where injection is always skipped by the webhook handler,
+  # regardless of injectMode. This is a defence-in-depth layer on top of
+  # namespaceSelector — useful when namespaceSelector can't express the full
+  # exclusion list (e.g. dynamically created system namespaces).
+  # The operator's own release namespace is always excluded automatically.
+  excludedNamespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
 
   certManager:
     # When true, a self-signed cert-manager Issuer + Certificate are created
@@ -63,8 +114,44 @@ webhook:
   # Pin to a SHA digest in production for supply-chain security.
   sidecarImage: "ghcr.io/agentspec/sidecar:latest"
 
-# RemoteAgentWatcher — polls the control plane and upserts AgentObservation CRs
-# for remote agents (Bedrock, Vertex, Docker, local) into a dedicated namespace.
+  # ── OPA policy enforcement sidecar ─────────────────────────────────────────
+  # When opa.enabled is true, the webhook injects an OPA container alongside
+  # every agentspec-sidecar and wires OPA_URL + OPA_PROXY_MODE env vars on the
+  # sidecar so per-request policy evaluation is active with zero agent-side code.
+  #
+  # The OPA policy bundle (policy.rego + data.json) is loaded from a ConfigMap
+  # named "{agent-name}-{opa.policyConfigMapSuffix}" in the pod's namespace.
+  # Generate it with:  agentspec generate-policy agent.yaml --out policies/
+  opa:
+    # Set to true to inject OPA alongside every agentspec-sidecar.
+    # The policy ConfigMap must exist in the same namespace as the pod.
+    enabled: false
+
+    # OPA server image. Pin to a digest in production.
+    image: "openpolicyagent/opa:0.70.0-static"
+
+    # Per-request proxy enforcement mode (OPA_PROXY_MODE on the sidecar):
+    #
+    #   track   — record violations in the audit ring and add the
+    #             X-AgentSpec-OPA-Violations response header, but forward
+    #             the request. Safe for rollout — never blocks traffic.
+    #   enforce — block non-compliant requests with 403 PolicyViolation
+    #             before they reach the agent. Use once policies + agents
+    #             are verified with track mode first.
+    #   off     — disable per-request OPA checks on the proxy entirely.
+    #
+    # Override per-pod with annotation: agentspec.io/opa-proxy-mode: enforce
+    proxyMode: "track"
+
+    # Suffix used to derive the OPA policy ConfigMap name:
+    #   "{agent-name}-{policyConfigMapSuffix}"
+    # e.g. agent gymcoach → ConfigMap "gymcoach-opa-policy"
+    # The ConfigMap must contain policy.rego and data.json as top-level keys.
+    policyConfigMapSuffix: "opa-policy"
+
+# ── RemoteAgentWatcher ────────────────────────────────────────────────────────
+# Polls the control plane and upserts AgentObservation CRs for remote agents
+# (Bedrock, Vertex, Docker, local) into a dedicated namespace.
 controlPlane:
   # Set to true to enable RemoteAgentWatcher. Requires url and apiKey.
   enabled: false

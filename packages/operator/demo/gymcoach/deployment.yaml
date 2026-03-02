@@ -170,6 +170,8 @@ spec:
               value: "/config/agent.yaml"
             - name: OPA_URL
               value: "http://localhost:8181"
+            - name: OPA_PROXY_MODE
+              value: "enforce"
           ports:
             - containerPort: 4000
               name: proxy

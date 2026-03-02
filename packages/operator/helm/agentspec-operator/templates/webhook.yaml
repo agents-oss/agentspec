@@ -46,20 +46,42 @@ webhooks:
         operations: ["CREATE"]
         resources: ["pods"]
         scope: Namespaced
-    # Only mutate pods that carry the opt-in annotation.
-    # objectSelector is evaluated before the webhook is called, keeping noise low.
+    # objectSelector — pre-filters pods before the webhook is called.
+    # In annotation mode, only call the webhook for pods with the opt-in annotation,
+    # reducing noise and latency for non-agentspec workloads.
+    # In default mode, the webhook is called for all pods (handler decides per-pod).
     objectSelector:
-      matchLabels: {}
-    # Exclude system namespaces — injecting into kube-system or the operator's
-    # own namespace would create a circular dependency.
-    namespaceSelector:
+      {{- if eq .Values.webhook.injectMode "annotation" }}
       matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
+        - key: agentspec.io/inject
+          operator: In
+          values: ["true"]
+      {{- else }}
+      matchLabels: {}
+      {{- end }}
+    # namespaceSelector — controls which namespaces kube-apiserver routes to this
+    # webhook. Configured from values.yaml (webhook.namespaceSelector).
+    # The operator's own namespace is always appended to the exclusion list to
+    # prevent circular dependency issues.
+    namespaceSelector:
+      {{- $ns := .Values.webhook.namespaceSelector | deepCopy }}
+      {{- if $ns.matchExpressions }}
+      matchExpressions:
+        {{- range $ns.matchExpressions }}
+        - key: {{ .key }}
+          operator: {{ .operator }}
           values:
-            - kube-system
-            - kube-public
-            - {{ .Release.Namespace }}
+            {{- range .values }}
+            - {{ . }}
+            {{- end }}
+            {{- if and (eq .operator "NotIn") (eq .key "kubernetes.io/metadata.name") }}
+            - {{ $.Release.Namespace }}
+            {{- end }}
+        {{- end }}
+      {{- else if $ns.matchLabels }}
+      matchLabels:
+        {{- toYaml $ns.matchLabels | nindent 8 }}
+      {{- end }}
     clientConfig:
       service:
         name: {{ include "agentspec-operator.name" . }}

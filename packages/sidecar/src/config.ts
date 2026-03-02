@@ -1,3 +1,15 @@
+function requireOpaMode(
+  envVar: string,
+  fallback: 'enforce' | 'track' | 'off',
+): 'enforce' | 'track' | 'off' {
+  const raw = process.env[envVar]
+  if (raw === undefined) return fallback
+  if (raw === 'enforce' || raw === 'track' || raw === 'off') return raw
+  throw new Error(
+    `Invalid ${envVar}: "${raw}" — must be one of: enforce, track, off`,
+  )
+}
+
 function requirePort(envVar: string, fallback: number): number {
   const raw = process.env[envVar]
   const port = raw !== undefined ? Number(raw) : fallback
@@ -62,4 +74,18 @@ export const config = {
    * Use `agentspec generate-policy agent.yaml --out policies/` to generate the bundle.
    */
   opaUrl: process.env['OPA_URL'] ?? null,
+
+  /**
+   * OPA proxy enforcement mode. Controls what happens when OPA reports violations
+   * on a proxied request.
+   *
+   *   enforce — block the request with 403 PolicyViolation before forwarding
+   *   track   — record violations in the audit ring and response header, but forward
+   *   off     — disable OPA per-request checks on the proxy entirely
+   *
+   * Defaults to 'track' so OPA is additive and never breaks existing traffic.
+   * Set OPA_PROXY_MODE=enforce only once you have verified your policy bundle
+   * and your agents set X-AgentSpec-Guardrails-Invoked correctly.
+   */
+  opaProxyMode: requireOpaMode('OPA_PROXY_MODE', 'track'),
 } as const

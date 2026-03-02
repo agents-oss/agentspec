@@ -188,6 +188,8 @@ spec:
               value: "/config/agent.yaml"
             - name: OPA_URL
               value: "http://localhost:8181"
+            - name: OPA_PROXY_MODE
+              value: "enforce"
             # GROQ_API_KEY set so sidecar static env check passes
             - name: GROQ_API_KEY
               value: "sk-agentspec-demo-groq"

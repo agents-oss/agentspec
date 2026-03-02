@@ -90,6 +90,72 @@ export interface OPAResult {
 // ── Input builder ──────────────────────────────────────────────────────────────
 
 /**
+ * Parse a comma-separated header value into an array of trimmed strings.
+ * Handles both string and string[] header shapes from Fastify.
+ *
+ *   "pii-detector, toxicity-filter" → ["pii-detector", "toxicity-filter"]
+ *   undefined                       → []
+ */
+export function parseCommaSeparatedHeader(
+  value: string | string[] | undefined,
+): string[] {
+  if (!value) return []
+  const raw = Array.isArray(value) ? value[0] : value
+  if (!raw?.trim()) return []
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/**
+ * Build an OPAInput for proxy-level per-request evaluation.
+ *
+ * Unlike buildOPAInput (which requires an AgentProbeResult from probing the
+ * upstream), this uses only manifest declarations + HTTP request headers.
+ * The headers are populated by the framework sub-SDK (sdk-langgraph, etc.)
+ * on each request:
+ *
+ *   X-AgentSpec-Guardrails-Invoked: pii-detector,toxicity-filter
+ *   X-AgentSpec-Tools-Called:       plan-workout,log-session
+ *   X-AgentSpec-User-Confirmed:     true
+ *
+ * When these headers are absent (e.g. non-SDK agents), the input falls back to
+ * worst-case values — guardrails_invoked: [], tools_called: [] — which means
+ * every declared guardrail will appear as "not invoked" in the OPA decision.
+ */
+export function buildProxyOPAInput(
+  manifest: AgentSpecManifest,
+  headers: Record<string, string | string[] | undefined>,
+): OPAInput {
+  const spec = manifest.spec
+  const guardrailsInvoked = parseCommaSeparatedHeader(
+    headers['x-agentspec-guardrails-invoked'],
+  )
+  const toolsCalled = parseCommaSeparatedHeader(headers['x-agentspec-tools-called'])
+  const userConfirmed =
+    (headers['x-agentspec-user-confirmed'] as string | undefined) === 'true'
+
+  const input: OPAInput = {
+    agent_name: manifest.metadata.name,
+    request_type: 'llm_call',
+    model_id: `${spec.model.provider}/${spec.model.id}`,
+    guardrails_declared: (spec.guardrails?.input ?? []).map((g) => g.type),
+    guardrails_invoked: guardrailsInvoked,
+    tools_registered: (spec.tools ?? []).map((t) => t.name),
+    sdk_available: false,
+    has_health_endpoint: false,
+    has_capabilities_endpoint: false,
+    all_checks_passing: false,
+  }
+
+  if (toolsCalled.length > 0) input.tools_called = toolsCalled
+  if (userConfirmed) input.user_confirmed = true
+
+  return input
+}
+
+/**
  * Assemble an OPAInput from the manifest, probe result, and observed endpoints.
  *
  * This is a pure function — no I/O. The sidecar calls this before querying OPA.
