@@ -163,11 +163,13 @@ kubectl apply -f ./generated/k8s/deployment.yaml
 kubectl apply -f ./generated/k8s/service.yaml
 ```
 
-## Next Steps
+## What to do next
 
-- [Add tools](./guides/add-tools.md)
-- [Add memory](./guides/add-memory.md)
-- [Add guardrails](./guides/add-guardrails.md)
-- [Add push mode](./guides/add-push-mode.md) — real-time health reporting
-- [Integrate with CI](./guides/ci-integration.md) — drift detection + compliance gates
-- [Full manifest reference](./reference/manifest-schema.md)
+| I want to...                          | Go to                                                                                        |
+|---------------------------------------|----------------------------------------------------------------------------------------------|
+| Build an agent from scratch           | [Tutorial: Build a production agent](./tutorials/01-build-production-agent)                  |
+| Add my existing code to AgentSpec     | [Tutorial: Harden an existing agent](./tutorials/02-harden-existing-agent)                   |
+| Deploy with Kubernetes and monitor it | [Tutorial: Deploy & monitor](./tutorials/03-deploy-and-monitor)                              |
+| Understand the manifest fields        | [The Manifest](./concepts/manifest)                                                          |
+| Understand compliance scoring         | [Compliance](./concepts/compliance)                                                          |
+| See all CLI commands                  | [CLI Reference](./reference/cli)                                                             |
