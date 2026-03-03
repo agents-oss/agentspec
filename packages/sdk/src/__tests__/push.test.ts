@@ -59,6 +59,12 @@ const auditReport: AuditReport = {
   passedRules: 10,
   totalRules: 10,
   packBreakdown: {} as Record<CompliancePack, { passed: number; total: number }>,
+  evidenceBreakdown: {
+    declarative: { passed: 0, total: 0 },
+    probed: { passed: 0, total: 0 },
+    behavioral: { passed: 0, total: 0 },
+    external: { passed: 0, total: 0 },
+  },
 }
 
 // ── Push mode tests ───────────────────────────────────────────────────────────

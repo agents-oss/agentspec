@@ -449,6 +449,8 @@ describe('runHealthCheck — eval dataset checks', () => {
       spec: {
         ...baseManifest.spec,
         evaluation: {
+          framework: 'custom' as const,
+          ciGate: false,
           datasets: [{ name: 'qa-set', path: 'qa-pairs.jsonl' }],
         },
       },
@@ -471,6 +473,8 @@ describe('runHealthCheck — eval dataset checks', () => {
       spec: {
         ...baseManifest.spec,
         evaluation: {
+          framework: 'custom' as const,
+          ciGate: false,
           datasets: [{ name: 'missing-set', path: 'nonexistent-data.jsonl' }],
         },
       },
@@ -494,6 +498,8 @@ describe('runHealthCheck — eval dataset checks', () => {
       spec: {
         ...baseManifest.spec,
         evaluation: {
+          framework: 'custom' as const,
+          ciGate: false,
           datasets: [{ name: 'env-set', path: '$env:EVAL_DATASET_PATH' }],
         },
       },
@@ -515,6 +521,8 @@ describe('runHealthCheck — eval dataset checks', () => {
       spec: {
         ...baseManifest.spec,
         evaluation: {
+          framework: 'custom' as const,
+          ciGate: false,
           datasets: [{ name: 'no-basedir-set', path: 'data.jsonl' }],
         },
       },

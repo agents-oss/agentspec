@@ -163,6 +163,7 @@ describe('runMemoryChecks — vector pgvector', () => {
     const checks = await runMemoryChecks({
       vector: {
         backend: 'pgvector',
+        dimension: 1536,
         connectionString: 'postgres://vectors.example.com:5432/vectordb',
       },
     })
@@ -178,6 +179,7 @@ describe('runMemoryChecks — vector pgvector', () => {
     const checks = await runMemoryChecks({
       vector: {
         backend: 'pgvector',
+        dimension: 1536,
         connectionString: 'postgres://vectors.example.com:5432/vectordb',
       },
     })
@@ -188,7 +190,7 @@ describe('runMemoryChecks — vector pgvector', () => {
 
   it('skips when vector connectionString is an unresolved $env: ref', async () => {
     const checks = await runMemoryChecks({
-      vector: { backend: 'pgvector', connectionString: '$env:VECTOR_DB_URL' },
+      vector: { backend: 'pgvector', dimension: 1536, connectionString: '$env:VECTOR_DB_URL' },
     })
 
     expect(checks[0].status).toBe('skip')
@@ -198,7 +200,7 @@ describe('runMemoryChecks — vector pgvector', () => {
 
   it('skips for unsupported vector backend (e.g. pinecone)', async () => {
     const checks = await runMemoryChecks({
-      vector: { backend: 'pinecone' as 'pgvector', apiKey: 'pk-literal-key' },
+      vector: { backend: 'pinecone' as 'pgvector', dimension: 1536, apiKey: 'pk-literal-key' },
     })
 
     expect(checks[0].id).toBe('memory.vector:pinecone')
@@ -208,7 +210,7 @@ describe('runMemoryChecks — vector pgvector', () => {
 
   it('skips when both connectionString and apiKey are unresolved $refs', async () => {
     const checks = await runMemoryChecks({
-      vector: { backend: 'pgvector', apiKey: '$env:VECTOR_API_KEY' },
+      vector: { backend: 'pgvector', dimension: 1536, apiKey: '$env:VECTOR_API_KEY' },
     })
 
     expect(checks[0].status).toBe('skip')

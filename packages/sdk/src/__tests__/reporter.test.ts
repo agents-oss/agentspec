@@ -291,7 +291,7 @@ describe('AgentSpecReporter', () => {
       spec: { ...testManifest.spec, tools: undefined },
     }
     const reporter = new AgentSpecReporter(
-      noToolsManifest as Parameters<typeof AgentSpecReporter>[0],
+      noToolsManifest as ConstructorParameters<typeof AgentSpecReporter>[0],
     )
 
     const report = await reporter.getReport()
