@@ -9,7 +9,9 @@ export const memoryRules: AuditRule[] = [
     description:
       'Agents with long-term memory must declare which fields to scrub for PII compliance',
     severity: 'critical',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'external',
+    proofTool: 'Microsoft Presidio',
+    proofToolUrl: 'https://microsoft.github.io/presidio/',
     check(manifest: AgentSpecManifest): RuleResult {
       if (!manifest.spec.memory?.longTerm) return { pass: true }
       const hasScrub = (manifest.spec.memory.hygiene?.piiScrubFields?.length ?? 0) > 0
@@ -32,7 +34,9 @@ export const memoryRules: AuditRule[] = [
     title: 'Retention policy / TTL set for all memory backends',
     description: 'Memory without TTL grows unbounded and increases PII exposure risk',
     severity: 'high',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       const mem = manifest.spec.memory
       if (!mem) return { pass: true }
@@ -66,7 +70,9 @@ export const memoryRules: AuditRule[] = [
     description:
       'Audit logging enables compliance investigations and debugging',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       if (!manifest.spec.memory?.longTerm) return { pass: true }
       const hasAuditLog = manifest.spec.memory.hygiene?.auditLog === true
@@ -89,7 +95,9 @@ export const memoryRules: AuditRule[] = [
     description:
       'Shared vector store namespaces risk data leakage between agents',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       if (!manifest.spec.memory?.vector) return { pass: true }
       const hasNamespace = !!manifest.spec.memory.vector.namespace
@@ -112,7 +120,9 @@ export const memoryRules: AuditRule[] = [
     title: 'Short-term memory max tokens bounded',
     description: 'Unbounded short-term memory can cause token budget overruns',
     severity: 'low',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       if (!manifest.spec.memory?.shortTerm) return { pass: true }
       const hasBound = manifest.spec.memory.shortTerm.maxTokens !== undefined

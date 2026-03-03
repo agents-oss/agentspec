@@ -8,7 +8,9 @@ export const observabilityRules: AuditRule[] = [
     title: 'Tracing backend declared',
     description: 'Agents should declare a tracing backend so runs are observable and debuggable',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       const pass = !!manifest.spec.observability?.tracing?.backend
       return {
@@ -29,7 +31,9 @@ export const observabilityRules: AuditRule[] = [
     title: 'Structured logging enabled',
     description: 'Structured logging makes log aggregation and searching reliable',
     severity: 'low',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'behavioral',
+    proofTool: 'AgentSpec EventPush + sidecar gap analysis',
+    proofToolUrl: 'https://agentspec.io/docs/concepts/probe-coverage',
     check(manifest: AgentSpecManifest): RuleResult {
       const pass = manifest.spec.observability?.logging?.structured !== false
       return {
@@ -47,7 +51,9 @@ export const observabilityRules: AuditRule[] = [
     title: 'Sensitive fields redacted from logs',
     description: 'Log redaction prevents secrets and PII from appearing in log aggregators',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'external',
+    proofTool: 'Microsoft Presidio',
+    proofToolUrl: 'https://microsoft.github.io/presidio/',
     check(manifest: AgentSpecManifest): RuleResult {
       const pass = (manifest.spec.observability?.logging?.redactFields?.length ?? 0) > 0
       return {

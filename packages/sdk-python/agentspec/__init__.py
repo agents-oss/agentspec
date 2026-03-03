@@ -15,3 +15,9 @@ from .reporter import AgentSpecReporter
 from .types import HealthReport, HealthCheck
 
 __all__ = ["AgentSpecReporter", "HealthReport", "HealthCheck"]
+
+try:
+    from .presidio_probe import PresidioProbe, PiiHit, ProbeScanResult
+    __all__ += ["PresidioProbe", "PiiHit", "ProbeScanResult"]
+except ImportError:
+    pass  # presidio extra not installed

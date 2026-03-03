@@ -17,7 +17,7 @@ export type CompliancePack =
   | 'evaluation-coverage'
   | 'observability'
 
-export type EvidenceLevel = 'declarative' | 'probed' | 'behavioral'
+export type EvidenceLevel = 'declarative' | 'probed' | 'behavioral' | 'external'
 
 export interface RuleResult {
   pass: boolean
@@ -35,6 +35,13 @@ export interface AuditRule {
   severity: RuleSeverity
   /** What kind of evidence supports this rule's verdict */
   evidenceLevel: EvidenceLevel
+  /**
+   * Human-readable name of the external tool that can prove this rule.
+   * Defined for 'external' evidence level rules; optional on 'probed'.
+   */
+  proofTool?: string
+  /** URL to integration guide or documentation for the proof tool */
+  proofToolUrl?: string
   check(manifest: AgentSpecManifest): RuleResult
 }
 
@@ -48,12 +55,26 @@ export interface AuditViolation {
   references?: string[]
   /** What kind of evidence supports this violation */
   evidenceLevel: EvidenceLevel
+  /** Proof tool recommendation (for 'external' rules) */
+  proofTool?: string
+  /** Proof tool URL (for 'external' rules) */
+  proofToolUrl?: string
 }
 
 export interface EvidenceBreakdown {
   declarative: { passed: number; total: number }
   probed: { passed: number; total: number }
   behavioral: { passed: number; total: number }
+  external: { passed: number; total: number }
+}
+
+/** A proof record submitted by an external tool to the sidecar's /proof endpoint */
+export interface ProofRecord {
+  ruleId: string
+  verifiedAt: string
+  verifiedBy: string
+  method: string
+  expiresAt?: string
 }
 
 export interface AuditReport {
@@ -68,6 +89,15 @@ export interface AuditReport {
   totalRules: number
   packBreakdown: Record<CompliancePack, { passed: number; total: number }>
   evidenceBreakdown: EvidenceBreakdown
+  /**
+   * Score based only on proved rules (probed + behavioral + external with proof records).
+   * Only present when proofRecords are provided to runAudit (e.g. via --url flag).
+   */
+  provedScore?: number
+  /** Grade corresponding to provedScore */
+  provedGrade?: 'A' | 'B' | 'C' | 'D' | 'F'
+  /** Number of 'external' rules that pass declaratively but lack a proof record */
+  pendingProofCount?: number
 }
 
 export interface SuppressionRecord {
@@ -82,6 +112,11 @@ export interface AuditOptions {
   packs?: CompliancePack[]
   /** Include rules from the manifest's compliance.packs. Default: true */
   useManifestPacks?: boolean
+  /**
+   * Proof records fetched from the sidecar's GET /proof endpoint.
+   * When provided, provedScore and pendingProofCount are computed.
+   */
+  proofRecords?: ProofRecord[]
 }
 
 // ── Severity weights ──────────────────────────────────────────────────────────
@@ -101,6 +136,20 @@ const ALL_RULES: AuditRule[] = [
   ...evaluationRules,
   ...observabilityRules,
 ]
+
+/** Set of all valid audit rule IDs — single source of truth for validation. */
+export const AUDIT_RULE_IDS: ReadonlySet<string> = new Set(ALL_RULES.map((r) => r.id))
+
+/** Type guard: returns true if `r` is a structurally valid ProofRecord. */
+export function isProofRecord(r: unknown): r is ProofRecord {
+  return (
+    typeof r === 'object' &&
+    r !== null &&
+    typeof (r as Record<string, unknown>)['ruleId'] === 'string' &&
+    typeof (r as Record<string, unknown>)['verifiedBy'] === 'string' &&
+    typeof (r as Record<string, unknown>)['method'] === 'string'
+  )
+}
 
 // ── Grade thresholds ──────────────────────────────────────────────────────────
 export function scoreToGrade(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
@@ -144,13 +193,23 @@ export function runAudit(
       .map((s) => s.ruleId),
   )
 
-  // Run all rules
+  // Pre-run all checks (single pass, results stored for reuse)
+  const ruleResults = new Map<string, RuleResult>()
+  for (const rule of rules) {
+    ruleResults.set(
+      rule.id,
+      suppressedIds.has(rule.id) ? { pass: true } : rule.check(manifest),
+    )
+  }
+
+  // ── Main scoring pass ─────────────────────────────────────────────────────
   const violations: AuditViolation[] = []
   const packBreakdown: Record<string, { passed: number; total: number }> = {}
   const evidenceBreakdown: EvidenceBreakdown = {
     declarative: { passed: 0, total: 0 },
     probed:      { passed: 0, total: 0 },
     behavioral:  { passed: 0, total: 0 },
+    external:    { passed: 0, total: 0 },
   }
 
   let totalWeight = 0
@@ -164,6 +223,7 @@ export function runAudit(
 
     const suppressed = suppressedIds.has(rule.id)
     const weight = SEVERITY_WEIGHTS[rule.severity]
+    const result = ruleResults.get(rule.id)!
     const tier = evidenceBreakdown[rule.evidenceLevel]
 
     // Hoist totals — always increment regardless of suppression or pass/fail
@@ -175,8 +235,6 @@ export function runAudit(
       tier.passed += 1
       continue
     }
-
-    const result = rule.check(manifest)
 
     if (result.pass) {
       packBreakdown[rule.pack]!.passed += 1
@@ -192,6 +250,8 @@ export function runAudit(
         recommendation: result.recommendation,
         references: result.references,
         evidenceLevel: rule.evidenceLevel,
+        proofTool: rule.proofTool,
+        proofToolUrl: rule.proofToolUrl,
       })
     }
 
@@ -207,6 +267,47 @@ export function runAudit(
     categoryScores[pack] = total === 0 ? 100 : Math.round((passed / total) * 100)
   }
 
+  // ── Proved score pass (only when proofRecords provided) ───────────────────
+  let provedScore: number | undefined
+  let provedGrade: 'A' | 'B' | 'C' | 'D' | 'F' | undefined
+  let pendingProofCount: number | undefined
+
+  if (opts.proofRecords !== undefined) {
+    const now = new Date()
+    const proofSet = new Set(
+      opts.proofRecords
+        .filter((r) => !r.expiresAt || new Date(r.expiresAt) > now)
+        .map((r) => r.ruleId),
+    )
+    let provedPassedWeight = 0
+
+    for (const rule of rules) {
+      if (suppressedIds.has(rule.id)) continue
+      const result = ruleResults.get(rule.id)!
+      const weight = SEVERITY_WEIGHTS[rule.severity]
+
+      const isProved =
+        (rule.evidenceLevel === 'probed' && result.pass) ||
+        (rule.evidenceLevel === 'behavioral' && result.pass) ||
+        (rule.evidenceLevel === 'external' && proofSet.has(rule.id))
+
+      if (isProved) provedPassedWeight += weight
+    }
+
+    provedScore =
+      totalWeight === 0 ? 100 : Math.round((provedPassedWeight / totalWeight) * 100)
+    provedGrade = scoreToGrade(provedScore)
+
+    // pendingProofCount: external rules that pass declaratively but lack a proof record
+    pendingProofCount = rules.filter(
+      (r) =>
+        r.evidenceLevel === 'external' &&
+        !suppressedIds.has(r.id) &&
+        ruleResults.get(r.id)!.pass &&
+        !proofSet.has(r.id),
+    ).length
+  }
+
   return {
     agentName: manifest.metadata.name,
     timestamp: new Date().toISOString(),
@@ -219,5 +320,8 @@ export function runAudit(
     totalRules: rules.length,
     packBreakdown: packBreakdown as Record<CompliancePack, { passed: number; total: number }>,
     evidenceBreakdown,
+    provedScore,
+    provedGrade,
+    pendingProofCount,
   }
 }

@@ -8,7 +8,9 @@ export const modelRules: AuditRule[] = [
     title: 'Model fallback declared',
     description: 'A fallback model should be configured to handle rate limits and errors',
     severity: 'high',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'external',
+    proofTool: 'LiteLLM chaos test',
+    proofToolUrl: 'https://docs.litellm.ai/docs/proxy/reliability#mock-testing-fallbacks',
     check(manifest: AgentSpecManifest): RuleResult {
       const hasFallback = !!manifest.spec.model.fallback
       return {
@@ -29,7 +31,9 @@ export const modelRules: AuditRule[] = [
     title: 'Model version pinned',
     description: 'Model ID should not use "latest" — pin a specific version for reproducibility',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       const id = manifest.spec.model.id
       const isLatest = id === 'latest' || id.endsWith(':latest')
@@ -51,7 +55,9 @@ export const modelRules: AuditRule[] = [
     title: 'Cost controls declared',
     description: 'Monthly cost limits prevent unexpected API bills',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'external',
+    proofTool: 'LiteLLM Spend Tracking',
+    proofToolUrl: 'https://docs.litellm.ai/docs/proxy/cost_tracking',
     check(manifest: AgentSpecManifest): RuleResult {
       const hasCostControls = !!manifest.spec.model.costControls?.maxMonthlyUSD
       return {
@@ -72,7 +78,9 @@ export const modelRules: AuditRule[] = [
     title: 'Fallback retry strategy configured',
     description: 'Fallback should have maxRetries to avoid infinite loops',
     severity: 'low',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'external',
+    proofTool: 'pytest-mockllm',
+    proofToolUrl: 'https://pypi.org/project/pytest-mockllm/',
     check(manifest: AgentSpecManifest): RuleResult {
       if (!manifest.spec.model.fallback) return { pass: true }
       const hasRetries = manifest.spec.model.fallback.maxRetries !== undefined

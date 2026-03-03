@@ -72,6 +72,8 @@ export {
 export {
   runAudit,
   scoreToGrade,
+  AUDIT_RULE_IDS,
+  isProofRecord,
   type AuditReport,
   type AuditViolation,
   type AuditRule,
@@ -82,6 +84,8 @@ export {
   type EvidenceLevel,
   type CompliancePack,
   type SuppressionRecord,
+  type ProofRecord,
+  type EvidenceBreakdown,
 } from './audit/index.js'
 
 // Generate

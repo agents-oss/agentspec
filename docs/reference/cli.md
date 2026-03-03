@@ -59,15 +59,48 @@ agentspec audit <file>
 agentspec audit agent.yaml --pack owasp-llm-top10
 agentspec audit agent.yaml --json --output report.json
 agentspec audit agent.yaml --fail-below 70
+
+# Dual score: fetch proof records from sidecar and compute proved score
+agentspec audit agent.yaml --url http://localhost:4001
+agentspec audit agent.yaml --url http://localhost:4001 --json
 ```
 
 Options:
 - `--pack <pack>` — run only this pack
+- `--url <url>` — sidecar base URL; fetches `GET /proof` and merges proof records to compute `provedScore`
 - `--json` — output as JSON
 - `--output <file>` — write JSON report to file
-- `--fail-below <score>` — exit 1 if score < threshold
+- `--fail-below <score>` — exit 1 if declared score < threshold
+
+**With `--url`**, the audit report includes two scores:
+
+```
+  Declared score : D  65/100  — what your spec says
+  Proved score   : F  35/100  — what has been verified
+  Pending proof  : 4 rules — run external tools and POST to http://localhost:4001/proof/rule/:ruleId
+```
+
+**JSON output with `--url`:**
+
+```json
+{
+  "overallScore": 65,
+  "grade": "D",
+  "provedScore": 35,
+  "provedGrade": "F",
+  "pendingProofCount": 4,
+  "violations": [...]
+}
+```
+
+The `provedScore` counts only rules verified by:
+- `[P]` probed rules that pass their health check
+- `[B]` behavioral rules observed via EventPush
+- `[X]` external rules with a proof record submitted via `POST /proof/rule/:ruleId`
 
 Exit codes: `0` = audit complete (check score), `1` = below threshold
+
+See [Proof Integration Guide](../guides/proof-integration.md) for how to submit proof records from external tools.
 
 ## `agentspec generate`
 

@@ -233,7 +233,7 @@ demo-patch:
 	@echo ""
 	@# ─── voice-assistant (manifest-static): C → A ────────────────────────────
 	@printf "  $(BOLD)[voice-assistant] BEFORE$(RESET): score=60 grade=C phase=Unhealthy source=manifest-static\n"
-	@printf "  violations: healthcheckable (high), discoverable (medium), auditable (medium)\n"
+	@printf "  violations: healthcheckable [P] (high), discoverable [P] (medium), auditable [D] (medium)\n"
 	@echo ""
 	@printf "  $(CYAN)Patch 1/3$(RESET): Adding guardrails to agent.yaml spec...\n"
 	@printf "    spec.guardrails.input:  [none]  →  pii-detector (scrub)\n"
@@ -255,7 +255,8 @@ demo-patch:
 	@echo ""
 	@# ─── research-agent (agent-sdk): F → A ──────────────────────────────────
 	@printf "  $(BOLD)[research-agent] BEFORE$(RESET): score=20 grade=F phase=Unhealthy source=agent-sdk\n"
-	@printf "  live failures: model:openai/gpt-4o (critical), env:OPENAI_API_KEY (high), tool:search-arxiv (medium), tool:analyze-paper (medium)\n"
+	@printf "  live violations: model:openai/gpt-4o [P] (critical,-30), env:OPENAI_API_KEY [P] (high,-20),\n"
+	@printf "                   tool:search-arxiv [P] (medium,-10), tool:analyze-paper [P] (medium,-10), auditable [D] (medium,-10)\n"
 	@printf "  (SDK integrated but broken — API key unset, tool handlers not registered)\n"
 	@echo ""
 	@printf "  $(CYAN)Patch 1/3$(RESET): Adding guardrails to agent.yaml spec...\n"
@@ -275,7 +276,7 @@ demo-patch:
 	@printf "    /health/ready  →  200 OK\n"
 	@printf "    /gap           →  violations: 0\n"
 	@echo ""
-	@printf "  $(GREEN)✓ [research-agent] AFTER: score=100 grade=A phase=Healthy source=manifest-static$(RESET)\n"
+	@printf "  $(GREEN)✓ [research-agent] AFTER: score=100 grade=A phase=Healthy source=agent-sdk$(RESET)\n"
 	@printf "  violations: none\n"
 	@echo ""
 	$(MAKE) demo-status

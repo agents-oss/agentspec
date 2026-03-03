@@ -30,7 +30,9 @@ data:
           type: function
           description: "Analyse a paper PDF and extract key findings"
       # No guardrails block — intentional compliance gap → auditable violation (medium/-10)
-      # Combined with live failures: model:fail (-30) + 2×tool:fail (-20) → score=40 / grade=F
+      # Penalty: model:fail critical(−30) + env:OPENAI_API_KEY high(−20) [reconciliation]
+      #        + tool:search-arxiv medium(−10) + tool:analyze-paper medium(−10)
+      #        + auditable medium(−10) = −80 → score=20 / grade=F
       # Only reachable in agent-sdk mode (manifest-static cannot detect live tool registration failures)
 ---
 # Deployment: agent container (SDK-integrated but failing) + agentspec-sidecar
@@ -64,11 +66,12 @@ spec:
           # Pre-patch agent-sdk state: the agent serves /agentspec/health with a
           # FAILING health report (SDK integrated but broken). This gives source=agent-sdk
           # and the following live violations:
-          #   model:openai/gpt-4o   FAIL (critical, −30) — API key not set
-          #   tool:search-arxiv     FAIL (medium,   −10) — handler not registered
-          #   tool:analyze-paper    FAIL (medium,   −10) — handler not registered
-          #   auditable             FAIL (medium,   −10) — no guardrails in manifest
-          # score=40 / grade=F / phase=Unhealthy / source=agent-sdk (pre-patch)
+          #   model:openai/gpt-4o   FAIL (critical, −30) [P] — API key not set
+          #   env:OPENAI_API_KEY    FAIL (high,     −20) [P] — absent from probe report (reconciliation)
+          #   tool:search-arxiv     FAIL (medium,   −10) [P] — handler not registered
+          #   tool:analyze-paper    FAIL (medium,   −10) [P] — handler not registered
+          #   auditable             FAIL (medium,   −10) [D] — no guardrails in manifest
+          # score=20 / grade=F / phase=Unhealthy / source=agent-sdk (pre-patch)
           # After demo-patch: all checks pass, guardrails added → score=100 / grade=A
           command:
             - python3

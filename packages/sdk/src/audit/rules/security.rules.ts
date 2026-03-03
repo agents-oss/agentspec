@@ -9,7 +9,9 @@ export const securityRules: AuditRule[] = [
     description:
       'OWASP LLM Top 10 #1: Agents should have input guardrails to detect prompt injection',
     severity: 'high',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'behavioral',
+    proofTool: 'AgentSpec EventPush + sidecar gap analysis',
+    proofToolUrl: 'https://agentspec.io/docs/concepts/probe-coverage',
     check(manifest: AgentSpecManifest): RuleResult {
       const hasGuardrail =
         manifest.spec.guardrails?.input?.some(
@@ -36,7 +38,9 @@ export const securityRules: AuditRule[] = [
     title: 'Insecure output handling: output guardrail required',
     description: 'OWASP LLM Top 10 #2: Agents should validate and sanitize LLM outputs',
     severity: 'high',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'behavioral',
+    proofTool: 'AgentSpec EventPush + sidecar gap analysis',
+    proofToolUrl: 'https://agentspec.io/docs/concepts/probe-coverage',
     check(manifest: AgentSpecManifest): RuleResult {
       const hasGuardrail = (manifest.spec.guardrails?.output?.length ?? 0) > 0
       return {
@@ -61,7 +65,9 @@ export const securityRules: AuditRule[] = [
     description:
       'OWASP LLM Top 10 #3: Prompt content should be loaded from versioned files, not inlined in the manifest',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       const system = manifest.spec.prompts.system
       const usesFile = system.startsWith('$file:')
@@ -86,7 +92,9 @@ export const securityRules: AuditRule[] = [
     title: 'Model DoS: rate limiting + cost controls declared',
     description: 'OWASP LLM Top 10 #4: Protect against denial-of-service via rate limiting',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'external',
+    proofTool: 'k6 load test',
+    proofToolUrl: 'https://k6.io',
     check(manifest: AgentSpecManifest): RuleResult {
       const hasRateLimit = !!manifest.spec.api?.rateLimit?.requestsPerMinute
       const hasCostControls = !!manifest.spec.model.costControls?.maxMonthlyUSD
@@ -112,7 +120,9 @@ export const securityRules: AuditRule[] = [
     title: 'Supply chain: model provider and version pinned',
     description: 'OWASP LLM Top 10 #5: Pin model versions to prevent supply chain drift',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       const hasProvider = !!manifest.spec.model.provider
       const hasVersion = !!manifest.spec.model.id && manifest.spec.model.id !== 'latest'
@@ -138,7 +148,9 @@ export const securityRules: AuditRule[] = [
     description:
       'OWASP LLM Top 10 #6: Agents storing long-term memory must scrub PII',
     severity: 'critical',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'external',
+    proofTool: 'Microsoft Presidio',
+    proofToolUrl: 'https://microsoft.github.io/presidio/',
     check(manifest: AgentSpecManifest): RuleResult {
       if (!manifest.spec.memory?.longTerm) return { pass: true }
       const hasPiiScrub =
@@ -164,7 +176,9 @@ export const securityRules: AuditRule[] = [
     title: 'Insecure plugin design: tool annotations declared',
     description: 'OWASP LLM Top 10 #7: Tools should declare their access scope via annotations',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'external',
+    proofTool: 'Promptfoo',
+    proofToolUrl: 'https://promptfoo.dev',
     check(manifest: AgentSpecManifest): RuleResult {
       if (!manifest.spec.tools?.length) return { pass: true }
       const allAnnotated = manifest.spec.tools.every((t) => t.annotations !== undefined)
@@ -190,7 +204,9 @@ export const securityRules: AuditRule[] = [
     description:
       'OWASP LLM Top 10 #8: Destructive tools must be explicitly flagged to limit agent autonomy',
     severity: 'high',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'external',
+    proofTool: 'Promptfoo',
+    proofToolUrl: 'https://promptfoo.dev',
     check(manifest: AgentSpecManifest): RuleResult {
       if (!manifest.spec.tools?.length) return { pass: true }
       const allHaveDestructiveHint = manifest.spec.tools.every(
@@ -218,7 +234,9 @@ export const securityRules: AuditRule[] = [
     description:
       'OWASP LLM Top 10 #9: Evaluation with a CI gate reduces overreliance on LLM outputs',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       const hasEval = !!manifest.spec.evaluation?.framework
       const hasCiGate = manifest.spec.evaluation?.ciGate === true
@@ -247,7 +265,9 @@ export const securityRules: AuditRule[] = [
     description:
       'OWASP LLM Top 10 #10: API keys should use $secret: not $env: to go through a secret manager',
     severity: 'high',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       const apiKey = manifest.spec.model.apiKey
       const usesSecret = apiKey.startsWith('$secret:')

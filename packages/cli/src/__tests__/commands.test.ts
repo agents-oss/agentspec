@@ -251,9 +251,10 @@ describe('audit command', () => {
     violations: [],
     suppressions: [],
     evidenceBreakdown: {
-      declarative: { passed: 10, total: 12 },
-      probed:      { passed: 0, total: 0 },
+      declarative: { passed: 0, total: 0 },
+      probed:      { passed: 10, total: 12 },
       behavioral:  { passed: 0, total: 0 },
+      external:    { passed: 0, total: 0 },
     },
   }
 
@@ -386,7 +387,7 @@ describe('audit command', () => {
     await run(['/fake/agent.yaml', '--pack', 'owasp-llm-top10'])
     expect(mockRunAudit).toHaveBeenCalledWith(
       mockManifest,
-      { packs: ['owasp-llm-top10'] },
+      { packs: ['owasp-llm-top10'], proofRecords: undefined },
     )
   })
 
@@ -394,25 +395,44 @@ describe('audit command', () => {
     mockLoadManifest.mockReturnValue(mockLoadResult)
     mockRunAudit.mockReturnValue(mockAuditReport)
     await run(['/fake/agent.yaml'])
-    expect(mockRunAudit).toHaveBeenCalledWith(mockManifest, { packs: undefined })
+    expect(mockRunAudit).toHaveBeenCalledWith(mockManifest, { packs: undefined, proofRecords: undefined })
   })
 
-  it('shows [D] badge for declarative violations', async () => {
+  it('shows [P] badge for probed violations', async () => {
     mockLoadManifest.mockReturnValue(mockLoadResult)
     mockRunAudit.mockReturnValue({
       ...mockAuditReport,
       violations: [
         {
-          ruleId: 'SEC-LLM-01',
-          title: 'Prompt injection guard',
-          severity: 'high',
-          message: 'No input guardrail',
-          evidenceLevel: 'declarative',
+          ruleId: 'SEC-LLM-05',
+          title: 'Supply chain: model provider and version pinned',
+          severity: 'medium',
+          message: 'Model provider or version not pinned.',
+          evidenceLevel: 'probed',
         },
       ],
     })
     await run(['/fake/agent.yaml'])
-    expect(logOutput()).toContain('[D]')
+    expect(logOutput()).toContain('[P]')
+  })
+
+  it('shows [X] badge for external violations', async () => {
+    mockLoadManifest.mockReturnValue(mockLoadResult)
+    mockRunAudit.mockReturnValue({
+      ...mockAuditReport,
+      violations: [
+        {
+          ruleId: 'SEC-LLM-04',
+          title: 'Model DoS: rate limiting + cost controls declared',
+          severity: 'medium',
+          message: 'No rate limiting or cost controls declared.',
+          evidenceLevel: 'external',
+          proofTool: 'k6 load test',
+        },
+      ],
+    })
+    await run(['/fake/agent.yaml'])
+    expect(logOutput()).toContain('[X]')
   })
 
   it('shows evidence breakdown footer', async () => {

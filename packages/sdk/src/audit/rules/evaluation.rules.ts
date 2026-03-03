@@ -8,7 +8,9 @@ export const evaluationRules: AuditRule[] = [
     title: 'Evaluation dataset declared',
     description: 'At least one evaluation dataset is required for quality assurance',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       const hasDataset = (manifest.spec.evaluation?.datasets?.length ?? 0) > 0
       return {
@@ -28,7 +30,9 @@ export const evaluationRules: AuditRule[] = [
     title: 'CI gate enabled',
     description: 'Evaluation CI gate prevents regressions from reaching production',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       const hasCiGate = manifest.spec.evaluation?.ciGate === true
       return {
@@ -47,7 +51,9 @@ export const evaluationRules: AuditRule[] = [
     title: 'Hallucination metric threshold configured',
     description: 'A hallucination threshold below 0.1 is required for production agents',
     severity: 'medium',
-    evidenceLevel: 'declarative',
+    evidenceLevel: 'probed',
+    proofTool: 'agentspec health',
+    proofToolUrl: 'https://agentspec.io/docs/reference/cli#agentspec-health',
     check(manifest: AgentSpecManifest): RuleResult {
       const metrics = manifest.spec.evaluation?.metrics ?? []
       const hasHallucinationMetric = metrics.includes('hallucination')

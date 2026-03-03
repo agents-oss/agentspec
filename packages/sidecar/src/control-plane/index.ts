@@ -10,6 +10,7 @@ import { buildExploreRoutes } from './explore.js'
 import { buildEvalRoutes } from './eval.js'
 import { buildGapRoutes } from './gap.js'
 import { buildEventsRoutes } from './events.js'
+import { buildProofRoutes, ProofStore } from './proof.js'
 
 export interface ControlPlaneOptions {
   logger?: boolean
@@ -17,6 +18,8 @@ export interface ControlPlaneOptions {
   startedAt?: number
   /** OPA URL to use for /events behavioral evaluation. Defaults to config.opaUrl. */
   opaUrl?: string | null
+  /** Proof store instance to use. If not provided a fresh store is created. */
+  proofStore?: ProofStore
 }
 
 export async function buildControlPlaneApp(
@@ -35,6 +38,9 @@ export async function buildControlPlaneApp(
   await buildEvalRoutes(app, manifest)
   await buildGapRoutes(app, manifest, auditRing)
   await buildEventsRoutes(app, manifest, auditRing, { opaUrl: opts.opaUrl })
+  await buildProofRoutes(app, opts.proofStore ?? new ProofStore())
 
   return app
 }
+
+export { ProofStore }
