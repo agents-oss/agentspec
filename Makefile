@@ -11,11 +11,19 @@ DEMO_OP_NS     := agentspec-system
 DEMO_AGENT_NS  := demo
 OPERATOR_IMAGE := agentspec/operator:dev
 
+# Set USE_KIND=false + KUBE_CONTEXT=<ctx> to skip kind and use an existing cluster.
+# Works out of the box with orbstack/Docker Desktop K8s (shared Docker daemon).
+# For remote clusters (AKS, EKS, GKE) push the sidecar image to a registry first.
+USE_KIND      ?= true
+KUBE_CONTEXT  ?= kind-$(DEMO_CLUSTER)
+
 # ── Colours ───────────────────────────────────────────────────────────────────
-BOLD  := \033[1m
-RESET := \033[0m
-CYAN  := \033[36m
-GREEN := \033[32m
+BOLD   := \033[1m
+RESET  := \033[0m
+CYAN   := \033[36m
+GREEN  := \033[32m
+RED    := \033[31m
+YELLOW := \033[33m
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 help:
@@ -42,7 +50,7 @@ help:
 	@printf "    $(GREEN)docs-build$(RESET)     Build the static doc site to docs/.vitepress/dist\n"
 	@printf "    $(GREEN)docs-preview$(RESET)   Preview the built doc site locally\n"
 	@echo ""
-	@printf "  $(BOLD)Demo (requires kind + helm + docker)$(RESET)\n"
+	@printf "  $(BOLD)Demo (requires helm + docker + kubectl)$(RESET)\n"
 	@printf "    $(GREEN)demo$(RESET)           Full demo: cluster + operator + agents + verify\n"
 	@printf "    $(GREEN)demo-provision$(RESET) Provision cluster + operator + agents (no verify)\n"
 	@printf "    $(GREEN)demo-cluster$(RESET)   Create the kind cluster (idempotent)\n"
@@ -56,6 +64,15 @@ help:
 	@printf "    $(GREEN)demo-logs$(RESET)      Tail the operator logs\n"
 	@printf "    $(GREEN)demo-down$(RESET)      Delete the kind cluster\n"
 	@printf "    $(GREEN)demo-opa$(RESET)       Verify OPA health + run sample policy queries\n"
+	@echo ""
+	@printf "  $(BOLD)Demo options$(RESET)\n"
+	@printf "    $(CYAN)USE_KIND$(RESET)=true|false   Use kind cluster (default: true)\n"
+	@printf "    $(CYAN)KUBE_CONTEXT$(RESET)=<ctx>    Kubectl context (default: kind-agentspec)\n"
+	@printf "\n"
+	@printf "  Examples:\n"
+	@printf "    make demo                                        # kind cluster (default)\n"
+	@printf "    make demo USE_KIND=false KUBE_CONTEXT=orbstack   # orbstack\n"
+	@printf "    make demo USE_KIND=false KUBE_CONTEXT=docker-desktop\n"
 	@echo ""
 
 # ── Install ───────────────────────────────────────────────────────────────────
@@ -122,15 +139,17 @@ docs-preview:
 #   fitness-tracker Healthy   A  score=100  violations=0  source=agent-sdk
 #   research-agent  Unhealthy F  score=20   violations=5  source=agent-sdk
 #
-# Prerequisites: kind, helm, docker, kubectl (all in PATH)
+# Prerequisites: helm, docker, kubectl (all in PATH); kind required only when USE_KIND=true
 #
 # Usage:
-#   make demo           # full setup + verify
-#   make demo-status    # check live status (cluster must already be running)
-#   make demo-down      # tear down the cluster
+#   make demo                                        # full setup + verify (kind)
+#   make demo USE_KIND=false KUBE_CONTEXT=orbstack   # orbstack / Docker Desktop
+#   make demo-status                                 # check live status
+#   make demo-down                                   # tear down
 
-## Create (or reuse) the kind cluster
+## Create (or reuse) the cluster
 demo-cluster:
+ifeq ($(USE_KIND),true)
 	@if kind get clusters 2>/dev/null | grep -q "^$(DEMO_CLUSTER)$$"; then \
 	  printf "  $(CYAN)cluster$(RESET)   '$(DEMO_CLUSTER)' already exists — skipping create\n"; \
 	else \
@@ -138,29 +157,36 @@ demo-cluster:
 	  kind create cluster --name $(DEMO_CLUSTER) \
 	    --config packages/operator/uat/kind-cluster.yaml; \
 	fi
+else
+	@printf "  $(CYAN)cluster$(RESET)   USE_KIND=false — using context '$(KUBE_CONTEXT)'\n"
+	@kubectl cluster-info --context $(KUBE_CONTEXT) >/dev/null 2>&1 || \
+	  (printf "  $(RED)Cannot reach '$(KUBE_CONTEXT)' — check kubectl config$(RESET)\n" && exit 1)
+endif
 
 ## Build operator image + load into kind + deploy via Helm
 ## Idempotent: skips docker build + kind load if the operator deployment is already running.
 demo-operator: demo-cluster
 	@_op_ready=$$(kubectl get deployment agentspec-operator \
-	  -n $(DEMO_OP_NS) --context kind-$(DEMO_CLUSTER) \
+	  -n $(DEMO_OP_NS) --context $(KUBE_CONTEXT) \
 	  -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo 0); \
 	if [ "$$_op_ready" = "1" ]; then \
 	  printf "  $(CYAN)operator$(RESET)   already running — skipping build & image load\n"; \
 	else \
 	  printf "\n  $(BOLD)Building operator image $(OPERATOR_IMAGE)...$(RESET)\n"; \
 	  docker build -t $(OPERATOR_IMAGE) packages/operator; \
-	  printf "  $(BOLD)Loading image into kind cluster '$(DEMO_CLUSTER)'...$(RESET)\n"; \
-	  kind load docker-image $(OPERATOR_IMAGE) --name $(DEMO_CLUSTER); \
+	  if [ "$(USE_KIND)" = "true" ]; then \
+	    printf "  $(BOLD)Loading image into kind cluster '$(DEMO_CLUSTER)'...$(RESET)\n"; \
+	    kind load docker-image $(OPERATOR_IMAGE) --name $(DEMO_CLUSTER); \
+	  fi; \
 	fi
 	@printf "  $(BOLD)Deploying operator via Helm...$(RESET)\n"
 	helm upgrade --install agentspec \
 	  packages/operator/helm/agentspec-operator \
-	  --kube-context kind-$(DEMO_CLUSTER) \
+	  --kube-context $(KUBE_CONTEXT) \
 	  --namespace $(DEMO_OP_NS) --create-namespace \
 	  --set operator.image.repository=agentspec/operator \
 	  --set operator.image.tag=dev \
-	  --set operator.image.pullPolicy=Never \
+	  --set operator.image.pullPolicy=$(if $(filter true,$(USE_KIND)),Never,IfNotPresent) \
 	  --wait --timeout=120s
 
 ## Deploy all five demo agent pods + AgentObservation CRs
@@ -171,26 +197,27 @@ demo-operator: demo-cluster
 demo-deploy:
 	@_ar=$$(kubectl get deployments \
 	  gymcoach trading-bot voice-assistant fitness-tracker research-agent \
-	  -n $(DEMO_AGENT_NS) --context kind-$(DEMO_CLUSTER) \
+	  -n $(DEMO_AGENT_NS) --context $(KUBE_CONTEXT) \
 	  -o jsonpath='{range .items[*]}{.status.availableReplicas},{end}' 2>/dev/null || echo ""); \
 	_count=$$(echo "$$_ar" | tr ',' '\n' | grep -c "^1$$" 2>/dev/null || echo 0); \
 	if [ "$$_count" = "5" ]; then \
 	  printf "  $(CYAN)agents$(RESET)     all 5 demo agents already running — skipping deploy\n"; \
 	else \
 	  printf "\n  $(BOLD)Deploying demo agents...$(RESET)\n"; \
-	  kubectl apply -k packages/operator/demo/ --context kind-$(DEMO_CLUSTER); \
+	  kubectl apply -k packages/operator/demo/ --context $(KUBE_CONTEXT); \
 	  printf "  $(BOLD)Waiting for pods to be ready...$(RESET)\n"; \
 	  kubectl rollout status \
 	    deployment/gymcoach deployment/trading-bot deployment/voice-assistant \
 	    deployment/fitness-tracker deployment/research-agent \
-	    -n $(DEMO_AGENT_NS) --context kind-$(DEMO_CLUSTER) --timeout=180s; \
+	    -n $(DEMO_AGENT_NS) --context $(KUBE_CONTEXT) --timeout=180s; \
 	fi
 
 ## Run the UAT verify script
 demo-verify:
 	@bash packages/operator/uat/verify.sh \
 	  --namespace $(DEMO_OP_NS) \
-	  --demo-namespace $(DEMO_AGENT_NS)
+	  --demo-namespace $(DEMO_AGENT_NS) \
+	  --context $(KUBE_CONTEXT)
 
 ## Run automated e2e scenarios against the live demo cluster
 demo-e2e:
@@ -213,17 +240,17 @@ demo: demo-cluster demo-operator demo-deploy demo-verify
 ## Show live AgentObservation status table
 demo-status:
 	@echo ""
-	@printf "  $(BOLD)AgentObservations — cluster: $(DEMO_CLUSTER) / namespace: $(DEMO_AGENT_NS)$(RESET)\n"
+	@printf "  $(BOLD)AgentObservations — context: $(KUBE_CONTEXT) / namespace: $(DEMO_AGENT_NS)$(RESET)\n"
 	@echo ""
-	@kubectl get agentobservations -n $(DEMO_AGENT_NS) \
+	@kubectl get agentobservations -n $(DEMO_AGENT_NS) --context $(KUBE_CONTEXT) \
 	  -o custom-columns="NAME:.metadata.name,PHASE:.status.phase,GRADE:.status.grade,SCORE:.status.score,VIOLATIONS:.status.violations,SOURCE:.status.source" 2>&1 \
 	  | sed 's/^/  /' \
-	  || printf "  $(RED)Could not reach cluster — is it running? (kind get clusters)$(RESET)\n"
+	  || printf "  $(RED)Could not reach cluster — is it running? (kubectl config get-contexts)$(RESET)\n"
 	@echo ""
 
 ## Tail the operator logs (Ctrl-C to stop)
 demo-logs:
-	kubectl logs -n $(DEMO_OP_NS) deploy/agentspec-operator -f
+	kubectl logs -n $(DEMO_OP_NS) --context $(KUBE_CONTEXT) deploy/agentspec-operator -f
 
 ## Live patching demo — watch two agents improve in real time
 ## voice-assistant: C→A (manifest-static)   research-agent: F→A (agent-sdk)
@@ -238,7 +265,8 @@ demo-patch:
 	@printf "  $(CYAN)Patch 1/3$(RESET): Adding guardrails to agent.yaml spec...\n"
 	@printf "    spec.guardrails.input:  [none]  →  pii-detector (scrub)\n"
 	@printf "    spec.guardrails.output: [none]  →  content-safety (warn)\n"
-	kubectl apply -f packages/operator/demo/patches/voice-assistant-patched-configmap.yaml
+	kubectl apply -f packages/operator/demo/patches/voice-assistant-patched-configmap.yaml \
+	  --context $(KUBE_CONTEXT)
 	@printf "  $(GREEN)✓ ConfigMap patched$(RESET)\n"
 	@echo ""
 	@printf "  $(CYAN)Patch 2/3$(RESET): Starting /health + /capabilities HTTP server on port 8080...\n"
@@ -246,8 +274,10 @@ demo-patch:
 	@printf "    GET /capabilities  →  {\"tools\":[...]}\n"
 	@printf "  $(CYAN)Patch 3/3$(RESET): Setting OPENAI_API_KEY in sidecar environment...\n"
 	@printf "    OPENAI_API_KEY: [unset]  →  sk-demo-voice\n"
-	kubectl apply -f packages/operator/demo/patches/voice-assistant-patched-deployment.yaml
-	kubectl rollout status deployment/voice-assistant -n $(DEMO_AGENT_NS) --timeout=60s
+	kubectl apply -f packages/operator/demo/patches/voice-assistant-patched-deployment.yaml \
+	  --context $(KUBE_CONTEXT)
+	kubectl rollout status deployment/voice-assistant -n $(DEMO_AGENT_NS) \
+	  --context $(KUBE_CONTEXT) --timeout=60s
 	@printf "  $(GREEN)✓ Deployment updated (HTTP server running, env key set)$(RESET)\n"
 	@echo ""
 	@printf "  $(GREEN)✓ [voice-assistant] AFTER: score=100 grade=A phase=Healthy source=manifest-static$(RESET)\n"
@@ -261,15 +291,18 @@ demo-patch:
 	@echo ""
 	@printf "  $(CYAN)Patch 1/3$(RESET): Adding guardrails to agent.yaml spec...\n"
 	@printf "    spec.guardrails: [none]  →  input pii-detector + output toxicity-filter\n"
-	kubectl apply -f packages/operator/demo/patches/research-agent-patched-configmap.yaml
+	kubectl apply -f packages/operator/demo/patches/research-agent-patched-configmap.yaml \
+	  --context $(KUBE_CONTEXT)
 	@printf "  $(GREEN)✓ ConfigMap patched$(RESET)\n"
 	@echo ""
 	@printf "  $(CYAN)Patch 2/3$(RESET): Starting /health + /capabilities server + setting OPENAI_API_KEY...\n"
 	@printf "    GET /health        →  {\"status\":\"ok\"}\n"
 	@printf "    GET /capabilities  →  {\"tools\":[...]}\n"
 	@printf "    OPENAI_API_KEY: [unset]  →  sk-demo-research\n"
-	kubectl apply -f packages/operator/demo/patches/research-agent-patched-deployment.yaml
-	kubectl rollout status deployment/research-agent -n $(DEMO_AGENT_NS) --timeout=60s
+	kubectl apply -f packages/operator/demo/patches/research-agent-patched-deployment.yaml \
+	  --context $(KUBE_CONTEXT)
+	kubectl rollout status deployment/research-agent -n $(DEMO_AGENT_NS) \
+	  --context $(KUBE_CONTEXT) --timeout=60s
 	@printf "  $(GREEN)✓ Deployment updated$(RESET)\n"
 	@echo ""
 	@printf "  $(CYAN)Patch 3/3$(RESET): Verifying sidecar /health/ready + /gap response...\n"
@@ -285,11 +318,13 @@ demo-patch:
 demo-reset:
 	@echo ""
 	@printf "  $(BOLD)Resetting demo agents to pre-patch state...$(RESET)\n"
-	kubectl apply -f packages/operator/demo/voice-assistant/deployment.yaml
-	kubectl apply -f packages/operator/demo/research-agent/deployment.yaml
+	kubectl apply -f packages/operator/demo/voice-assistant/deployment.yaml \
+	  --context $(KUBE_CONTEXT)
+	kubectl apply -f packages/operator/demo/research-agent/deployment.yaml \
+	  --context $(KUBE_CONTEXT)
 	kubectl rollout status \
 	  deployment/voice-assistant deployment/research-agent \
-	  -n $(DEMO_AGENT_NS) --timeout=60s
+	  -n $(DEMO_AGENT_NS) --context $(KUBE_CONTEXT) --timeout=60s
 	@printf "  $(GREEN)✓ Demo reset — run 'make demo-patch' again to replay$(RESET)\n"
 	@echo ""
 
@@ -303,7 +338,8 @@ demo-opa:
 	@echo ""
 	@# ── gymcoach ────────────────────────────────────────────────────────────────
 	@printf "  $(CYAN)gymcoach$(RESET) — package: agentspec.agent.gymcoach\n"
-	@kubectl port-forward -n $(DEMO_AGENT_NS) deploy/gymcoach 18181:8181 >/dev/null 2>&1 & \
+	@kubectl port-forward -n $(DEMO_AGENT_NS) --context $(KUBE_CONTEXT) \
+	  deploy/gymcoach 18181:8181 >/dev/null 2>&1 & \
 	  PF_GYM=$$!; sleep 1; \
 	  printf "  OPA health: "; \
 	  curl -sf http://localhost:18181/health && echo " ok" || echo " unreachable"; \
@@ -316,7 +352,8 @@ demo-opa:
 	@echo ""
 	@# ── fitness-tracker ─────────────────────────────────────────────────────────
 	@printf "  $(CYAN)fitness-tracker$(RESET) — package: agentspec.agent.fitness_tracker\n"
-	@kubectl port-forward -n $(DEMO_AGENT_NS) deploy/fitness-tracker 18182:8181 >/dev/null 2>&1 & \
+	@kubectl port-forward -n $(DEMO_AGENT_NS) --context $(KUBE_CONTEXT) \
+	  deploy/fitness-tracker 18182:8181 >/dev/null 2>&1 & \
 	  PF_FT=$$!; sleep 1; \
 	  printf "  OPA health: "; \
 	  curl -sf http://localhost:18182/health && echo " ok" || echo " unreachable"; \
@@ -331,7 +368,12 @@ demo-opa:
 	@printf "    agentspec generate-policy examples/gymcoach/agent.yaml --out /tmp/gymcoach-policy/\n"
 	@echo ""
 
-## Delete the kind cluster and all demo resources
+## Delete the cluster and all demo resources
 demo-down:
+ifeq ($(USE_KIND),true)
 	@printf "  $(BOLD)Deleting kind cluster '$(DEMO_CLUSTER)'...$(RESET)\n"
 	kind delete cluster --name $(DEMO_CLUSTER)
+else
+	@printf "  $(YELLOW)USE_KIND=false — skipping kind delete. Clean up manually:$(RESET)\n"
+	@printf "    kubectl delete namespace $(DEMO_OP_NS) $(DEMO_AGENT_NS) --context $(KUBE_CONTEXT)\n"
+endif

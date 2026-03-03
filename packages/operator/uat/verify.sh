@@ -5,7 +5,7 @@
 # exist, and the operator is actively reconciling them (status.phase is set).
 #
 # Usage:
-#   bash uat/verify.sh [--namespace agentspec-system] [--demo-namespace demo]
+#   bash uat/verify.sh [--namespace agentspec-system] [--demo-namespace demo] [--context kind-agentspec]
 #
 # Exit codes:
 #   0  all checks passed
@@ -30,6 +30,7 @@ FAILURES=0
 OP_NS="${OP_NS:-agentspec-system}"
 DEMO_NS="${DEMO_NS:-demo}"
 TIMEOUT="${TIMEOUT:-120}"   # seconds to wait for reconciliation
+KUBE_CONTEXT=""
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -37,14 +38,23 @@ while [[ $# -gt 0 ]]; do
     --namespace)       OP_NS="$2"; shift 2 ;;
     --demo-namespace)  DEMO_NS="$2"; shift 2 ;;
     --timeout)         TIMEOUT="$2"; shift 2 ;;
+    --context)         KUBE_CONTEXT="$2"; shift 2 ;;
     *) echo "Unknown flag: $1"; exit 1 ;;
   esac
 done
+
+# Build kubectl context flag (empty string when not specified = use default)
+CTX_FLAG=""
+[[ -n "$KUBE_CONTEXT" ]] && CTX_FLAG="--context $KUBE_CONTEXT"
+
+# Wrapper so every kubectl call uses the right context
+kubectl() { command kubectl $CTX_FLAG "$@"; }
 
 echo -e "\n${BOLD}AgentSpec Operator — UAT Verification${RESET}"
 echo "  Operator namespace : $OP_NS"
 echo "  Demo namespace     : $DEMO_NS"
 echo "  Reconcile timeout  : ${TIMEOUT}s"
+[[ -n "$KUBE_CONTEXT" ]] && echo "  Kube context       : $KUBE_CONTEXT"
 echo ""
 
 # ── 1. Tools ──────────────────────────────────────────────────────────────────
