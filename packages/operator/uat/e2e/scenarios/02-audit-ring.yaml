@@ -1,0 +1,52 @@
+# scenarios/02-audit-ring.yaml
+#
+# After a request passes through the sidecar proxy, the audit ring must
+# contain an entry for it with the required fields.
+# Agent: gymcoach (stub responds 200 to GET).
+
+name: "Audit ring populated — gymcoach"
+agent: gymcoach
+proxy_port: 4000
+control_port: 4001
+
+steps:
+  - name: "GET / via proxy to generate an audit entry"
+    endpoint: proxy
+    method: GET
+    path: /
+    expect:
+      status: 200
+
+  - name: "GET /audit returns 200"
+    endpoint: control
+    method: GET
+    path: /audit
+    expect:
+      status: 200
+
+  - name: "Audit ring first entry has a requestId"
+    endpoint: control
+    method: GET
+    path: /audit
+    expect:
+      status: 200
+      jq: ".[0].requestId"
+      not_null: true
+
+  - name: "Audit ring first entry has a timestamp"
+    endpoint: control
+    method: GET
+    path: /audit
+    expect:
+      status: 200
+      jq: ".[0].timestamp"
+      not_null: true
+
+  - name: "Audit ring first entry has a method field"
+    endpoint: control
+    method: GET
+    path: /audit
+    expect:
+      status: 200
+      jq: ".[0].method"
+      not_null: true

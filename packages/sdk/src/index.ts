@@ -71,12 +71,15 @@ export {
 // Audit
 export {
   runAudit,
+  scoreToGrade,
   type AuditReport,
   type AuditViolation,
   type AuditRule,
   type AuditOptions,
   type RuleResult,
   type RuleSeverity,
+  type Severity,
+  type EvidenceLevel,
   type CompliancePack,
   type SuppressionRecord,
 } from './audit/index.js'

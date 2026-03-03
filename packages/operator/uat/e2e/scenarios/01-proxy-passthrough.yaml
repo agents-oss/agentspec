@@ -1,0 +1,43 @@
+# scenarios/01-proxy-passthrough.yaml
+#
+# Verify that the sidecar proxy (port 4000) forwards GET requests to the
+# upstream agent and returns the upstream response unmodified.
+# Agent: gymcoach (stub responds 200 to all GET requests).
+
+name: "Proxy passthrough — gymcoach"
+agent: gymcoach
+proxy_port: 4000
+control_port: 4001
+
+steps:
+  - name: "GET / via proxy returns 200"
+    endpoint: proxy
+    method: GET
+    path: /
+    expect:
+      status: 200
+
+  - name: "GET / response body contains status field"
+    endpoint: proxy
+    method: GET
+    path: /
+    expect:
+      status: 200
+      jq: ".status"
+      not_null: true
+
+  - name: "Control plane liveness probe returns 200"
+    endpoint: control
+    method: GET
+    path: /health/live
+    expect:
+      status: 200
+
+  - name: "Control plane readiness probe returns 200"
+    endpoint: control
+    method: GET
+    path: /health/ready
+    expect:
+      status: 200
+      jq: ".status"
+      not_null: true

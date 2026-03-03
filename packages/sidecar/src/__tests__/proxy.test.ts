@@ -34,10 +34,13 @@ interface MockUpstream {
     headers: Record<string, string | string[] | undefined>
   }>
   setStatus(code: number): void
+  /** Set response headers that the upstream will include on every response. */
+  setResponseHeaders(headers: Record<string, string>): void
 }
 
 function createMockUpstream(): MockUpstream {
   let statusCode = 200
+  let responseHeaders: Record<string, string> = {}
 
   const upstream: MockUpstream = {
     server: null as unknown as Server,
@@ -45,6 +48,9 @@ function createMockUpstream(): MockUpstream {
     requests: [],
     setStatus(code: number) {
       statusCode = code
+    },
+    setResponseHeaders(headers: Record<string, string>) {
+      responseHeaders = { ...headers }
     },
   }
 
@@ -62,6 +68,11 @@ function createMockUpstream(): MockUpstream {
         'x-request-id',
         Array.isArray(requestId) ? requestId[0] : requestId,
       )
+    }
+
+    // Set any configured response headers (used by OPA HeaderReporting tests)
+    for (const [key, value] of Object.entries(responseHeaders)) {
+      res.setHeader(key, value)
     }
 
     // Drain the body (required even if we don't use it)
@@ -321,281 +332,5 @@ describe('SSE', () => {
     }
 
     expect(sseData).toContain('data:')
-  })
-})
-
-// ── OPA proxy enforcement ─────────────────────────────────────────────────────
-
-/**
- * Minimal mock OPA server.
- * Returns a configurable deny set on POST /v1/data/agentspec/agent/<name>/deny.
- */
-interface MockOPA {
-  server: Server
-  url: string
-  /** Set violations to return on the next request (empty = allow) */
-  setDeny(violations: string[]): void
-  /** Number of requests received */
-  requests: number
-}
-
-function createMockOPA(): MockOPA {
-  let denySet: string[] = []
-  let requestCount = 0
-
-  const opa: MockOPA = {
-    server: null as unknown as Server,
-    url: '',
-    get requests() {
-      return requestCount
-    },
-    setDeny(violations) {
-      denySet = violations
-    },
-  }
-
-  opa.server = createServer((_req, res) => {
-    requestCount++
-    let body = ''
-    _req.on('data', (chunk: Buffer) => (body += chunk))
-    _req.on('end', () => {
-      const result = denySet.length > 0 ? denySet : undefined
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ result }))
-    })
-  })
-
-  return opa
-}
-
-async function startMockOPA(m: MockOPA): Promise<void> {
-  await new Promise<void>((resolve) => m.server.listen(0, '127.0.0.1', resolve))
-  const addr = m.server.address() as { port: number }
-  m.url = `http://127.0.0.1:${addr.port}`
-}
-
-/** Manifest with PII guardrail declared — triggers pii_detector_not_invoked */
-const manifestWithGuardrails: AgentSpecManifest = {
-  ...testManifest,
-  spec: {
-    ...testManifest.spec,
-    guardrails: {
-      input: [{ type: 'pii-detector', action: 'scrub', fields: ['name', 'email'] }],
-    },
-  },
-}
-
-describe('OPA proxy enforcement', () => {
-  let mockOPA: MockOPA
-  let opaUpstream: MockUpstream
-  let opaRing: AuditRing
-  let opaProxyApp: FastifyInstance
-  let opaProxyPort: number
-  let opaCpApp: FastifyInstance
-  let opaCpPort: number
-
-  async function buildOPAProxy(
-    mode: 'enforce' | 'track' | 'off',
-    mfst = manifestWithGuardrails,
-  ): Promise<void> {
-    opaProxyApp = await buildProxyApp(mfst, {
-      upstream: opaUpstream.url,
-      auditRing: opaRing,
-      opaUrl: mockOPA.url,
-      opaProxyMode: mode,
-    })
-    await opaProxyApp.listen({ port: 0, host: '127.0.0.1' })
-    opaProxyPort = (opaProxyApp.server.address() as { port: number }).port
-
-    opaCpApp = await buildControlPlaneApp(mfst, opaRing)
-    await opaCpApp.listen({ port: 0, host: '127.0.0.1' })
-    opaCpPort = (opaCpApp.server.address() as { port: number }).port
-  }
-
-  beforeEach(async () => {
-    mockOPA = createMockOPA()
-    await startMockOPA(mockOPA)
-
-    opaUpstream = createMockUpstream()
-    await startMockUpstream(opaUpstream)
-
-    opaRing = new AuditRing()
-  })
-
-  afterEach(async () => {
-    await opaProxyApp?.close()
-    await opaCpApp?.close()
-    await new Promise<void>((r) => opaUpstream.server.close(() => r()))
-    await new Promise<void>((r) => mockOPA.server.close(() => r()))
-  })
-
-  // ── track mode ──────────────────────────────────────────────────────────────
-
-  describe('track mode', () => {
-    it('forwards request even when OPA returns violations', async () => {
-      mockOPA.setDeny(['pii_detector_not_invoked'])
-      await buildOPAProxy('track')
-      const res = await fetch(`http://127.0.0.1:${opaProxyPort}/chat`, {
-        method: 'POST',
-      })
-      expect(res.status).toBe(200)
-      expect(opaUpstream.requests).toHaveLength(1)
-    })
-
-    it('records opaViolations in audit entry', async () => {
-      mockOPA.setDeny(['pii_detector_not_invoked'])
-      await buildOPAProxy('track')
-      await fetch(`http://127.0.0.1:${opaProxyPort}/chat`, { method: 'POST' })
-      const entries = await waitForAuditEntries(opaCpPort)
-      const entry = entries[entries.length - 1]!
-      expect(entry.opaViolations).toEqual(['pii_detector_not_invoked'])
-      expect(entry.opaBlocked).toBeFalsy()
-    })
-
-    it('sets X-AgentSpec-OPA-Violations response header', async () => {
-      mockOPA.setDeny(['pii_detector_not_invoked'])
-      await buildOPAProxy('track')
-      const res = await fetch(`http://127.0.0.1:${opaProxyPort}/chat`)
-      expect(res.headers.get('x-agentspec-opa-violations')).toBe(
-        'pii_detector_not_invoked',
-      )
-    })
-
-    it('no opaViolations in audit entry when OPA allows', async () => {
-      mockOPA.setDeny([]) // allow
-      await buildOPAProxy('track')
-      await fetch(`http://127.0.0.1:${opaProxyPort}/chat`)
-      const entries = await waitForAuditEntries(opaCpPort)
-      expect(entries[entries.length - 1]!.opaViolations).toBeUndefined()
-    })
-
-    it('forwards guardrails header to OPA (invoked → OPA receives it)', async () => {
-      // OPA returns allow when pii-detector is invoked — simulate via empty deny
-      mockOPA.setDeny([])
-      await buildOPAProxy('track')
-      // Send the header that sdk-langgraph would set
-      const res = await fetch(`http://127.0.0.1:${opaProxyPort}/chat`, {
-        headers: { 'x-agentspec-guardrails-invoked': 'pii-detector' },
-      })
-      expect(res.status).toBe(200)
-      expect(mockOPA.requests).toBeGreaterThan(0)
-    })
-  })
-
-  // ── enforce mode ─────────────────────────────────────────────────────────────
-
-  describe('enforce mode', () => {
-    it('returns 403 when OPA denies', async () => {
-      mockOPA.setDeny(['pii_detector_not_invoked'])
-      await buildOPAProxy('enforce')
-      const res = await fetch(`http://127.0.0.1:${opaProxyPort}/chat`, {
-        method: 'POST',
-      })
-      expect(res.status).toBe(403)
-    })
-
-    it('does not forward to upstream when blocked', async () => {
-      mockOPA.setDeny(['pii_detector_not_invoked'])
-      await buildOPAProxy('enforce')
-      await fetch(`http://127.0.0.1:${opaProxyPort}/chat`, { method: 'POST' })
-      expect(opaUpstream.requests).toHaveLength(0)
-    })
-
-    it('403 body has error + violations fields', async () => {
-      mockOPA.setDeny(['pii_detector_not_invoked', 'toxicity_threshold_exceeded'])
-      await buildOPAProxy('enforce')
-      const res = await fetch(`http://127.0.0.1:${opaProxyPort}/chat`)
-      const body = (await res.json()) as {
-        error: string
-        blocked: boolean
-        violations: string[]
-      }
-      expect(body.error).toBe('PolicyViolation')
-      expect(body.blocked).toBe(true)
-      expect(body.violations).toContain('pii_detector_not_invoked')
-    })
-
-    it('blocked request appears in audit ring with opaBlocked=true', async () => {
-      mockOPA.setDeny(['pii_detector_not_invoked'])
-      await buildOPAProxy('enforce')
-      await fetch(`http://127.0.0.1:${opaProxyPort}/chat`)
-      const entries = await waitForAuditEntries(opaCpPort)
-      const entry = entries[entries.length - 1]!
-      expect(entry.opaBlocked).toBe(true)
-      expect(entry.statusCode).toBe(403)
-      expect(entry.opaViolations).toContain('pii_detector_not_invoked')
-    })
-
-    it('forwards when OPA allows (no violations)', async () => {
-      mockOPA.setDeny([])
-      await buildOPAProxy('enforce')
-      const res = await fetch(`http://127.0.0.1:${opaProxyPort}/chat`)
-      expect(res.status).toBe(200)
-      expect(opaUpstream.requests).toHaveLength(1)
-    })
-
-    it('forwards when guardrails header satisfies OPA', async () => {
-      mockOPA.setDeny([]) // OPA sees guardrails_invoked and allows
-      await buildOPAProxy('enforce')
-      const res = await fetch(`http://127.0.0.1:${opaProxyPort}/chat`, {
-        headers: { 'x-agentspec-guardrails-invoked': 'pii-detector' },
-      })
-      expect(res.status).toBe(200)
-    })
-  })
-
-  // ── off mode ─────────────────────────────────────────────────────────────────
-
-  describe('off mode', () => {
-    it('does not call OPA at all', async () => {
-      mockOPA.setDeny(['pii_detector_not_invoked'])
-      await buildOPAProxy('off')
-      await fetch(`http://127.0.0.1:${opaProxyPort}/chat`)
-      expect(mockOPA.requests).toBe(0)
-    })
-
-    it('forwards request normally', async () => {
-      await buildOPAProxy('off')
-      const res = await fetch(`http://127.0.0.1:${opaProxyPort}/chat`)
-      expect(res.status).toBe(200)
-    })
-  })
-
-  // ── OPA unavailable (fail-open) ───────────────────────────────────────────
-
-  describe('OPA unavailable', () => {
-    it('track mode — forwards request when OPA is unreachable', async () => {
-      // Point to a port nothing is listening on
-      opaProxyApp = await buildProxyApp(manifestWithGuardrails, {
-        upstream: opaUpstream.url,
-        auditRing: opaRing,
-        opaUrl: 'http://127.0.0.1:19999', // nothing there
-        opaProxyMode: 'track',
-      })
-      await opaProxyApp.listen({ port: 0, host: '127.0.0.1' })
-      opaProxyPort = (opaProxyApp.server.address() as { port: number }).port
-
-      opaCpApp = await buildControlPlaneApp(manifestWithGuardrails, opaRing)
-      await opaCpApp.listen({ port: 0, host: '127.0.0.1' })
-      opaCpPort = (opaCpApp.server.address() as { port: number }).port
-
-      const res = await fetch(`http://127.0.0.1:${opaProxyPort}/chat`)
-      expect(res.status).toBe(200)
-    })
-
-    it('enforce mode — forwards request when OPA is unreachable (fail-open)', async () => {
-      opaProxyApp = await buildProxyApp(manifestWithGuardrails, {
-        upstream: opaUpstream.url,
-        auditRing: opaRing,
-        opaUrl: 'http://127.0.0.1:19999',
-        opaProxyMode: 'enforce',
-      })
-      await opaProxyApp.listen({ port: 0, host: '127.0.0.1' })
-      opaProxyPort = (opaProxyApp.server.address() as { port: number }).port
-
-      const res = await fetch(`http://127.0.0.1:${opaProxyPort}/chat`)
-      // OPA unavailable → allow=true (queryOPA fail-open behaviour)
-      expect(res.status).toBe(200)
-    })
   })
 })

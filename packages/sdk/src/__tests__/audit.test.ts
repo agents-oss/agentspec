@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import { runAudit } from '../audit/index.js'
+import { modelRules } from '../audit/rules/model.rules.js'
+import { securityRules } from '../audit/rules/security.rules.js'
+import { memoryRules } from '../audit/rules/memory.rules.js'
+import { evaluationRules } from '../audit/rules/evaluation.rules.js'
+import { observabilityRules } from '../audit/rules/observability.rules.js'
 import type { AgentSpecManifest } from '../schema/manifest.schema.js'
+
+const allRules = [
+  ...modelRules,
+  ...securityRules,
+  ...memoryRules,
+  ...evaluationRules,
+  ...observabilityRules,
+]
 
 const minimalManifest: AgentSpecManifest = {
   apiVersion: 'agentspec.io/v1',
@@ -87,6 +100,46 @@ const secureFull: AgentSpecManifest = {
     },
   },
 }
+
+describe('evidenceLevel', () => {
+  it('every AuditRule has a valid evidenceLevel', () => {
+    for (const rule of allRules) {
+      expect(['declarative', 'probed', 'behavioral']).toContain(
+        (rule as { evidenceLevel?: string }).evidenceLevel,
+      )
+    }
+  })
+
+  it('all current rules are declarative', () => {
+    for (const rule of allRules) {
+      expect((rule as { evidenceLevel?: string }).evidenceLevel).toBe('declarative')
+    }
+  })
+
+  it('AuditReport includes evidenceBreakdown', () => {
+    const report = runAudit(minimalManifest)
+    expect(report.evidenceBreakdown).toBeDefined()
+    expect(report.evidenceBreakdown).toMatchObject({
+      declarative: { passed: expect.any(Number), total: expect.any(Number) },
+      probed:      { passed: expect.any(Number), total: expect.any(Number) },
+      behavioral:  { passed: expect.any(Number), total: expect.any(Number) },
+    })
+  })
+
+  it('behavioral evidenceBreakdown total is 0 (no behavioral rules yet)', () => {
+    const report = runAudit(minimalManifest)
+    expect(report.evidenceBreakdown.behavioral.total).toBe(0)
+    expect(report.evidenceBreakdown.behavioral.passed).toBe(0)
+  })
+
+  it('violations include evidenceLevel', () => {
+    const report = runAudit(minimalManifest)
+    expect(report.violations.length).toBeGreaterThan(0)
+    for (const v of report.violations) {
+      expect(['declarative', 'probed', 'behavioral']).toContain(v.evidenceLevel)
+    }
+  })
+})
 
 describe('runAudit', () => {
   it('returns an audit report with violations for a minimal manifest', () => {

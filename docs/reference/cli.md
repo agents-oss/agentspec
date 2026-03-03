@@ -291,6 +291,81 @@ agentspec diff — compliance drift analysis
 
 Exit codes: `0` = no drift (or drift without `--exit-code`), `1` = drift detected with `--exit-code`
 
+## `agentspec evaluate`
+
+Run a declared JSONL evaluation dataset against a live agent and score actual outputs.
+
+```bash
+agentspec evaluate <file> --url <url> --dataset <name>
+agentspec evaluate agent.yaml --url http://localhost:4000 --dataset golden-qa
+agentspec evaluate agent.yaml --url http://localhost:4000 --dataset golden-qa --json
+agentspec evaluate agent.yaml --url http://localhost:4000 --dataset golden-qa --sample-size 20
+agentspec evaluate agent.yaml --url http://localhost:4000 --dataset golden-qa --tag planning
+```
+
+Options:
+- `--url <url>` — **required**: agent base URL (e.g. `http://localhost:4000`)
+- `--dataset <name>` — **required**: dataset name from `spec.evaluation.datasets[]`
+- `--sample-size <n>` — run only N randomly-selected samples (default: all)
+- `--tag <tag>` — filter samples to those with a matching tag
+- `--timeout <ms>` — per-request timeout in milliseconds (default: 10000)
+- `--json` — output JSON instead of human-readable table
+
+**Dataset format (JSONL):** one sample per line:
+
+```jsonl
+{"input": "What exercises for bad knees?", "expected": "low-impact"}
+{"input": "Design a 5-day plan", "expected": "rest day", "tags": ["planning"]}
+```
+
+- `input` — sent as the user message to `POST /v1/chat` (or `spec.api.chatEndpoint.path`)
+- `expected` — substring that must appear in the response (case-insensitive)
+- `tags` — optional; used for `--tag` filtering
+
+**Scoring:**
+
+| Metric | Description |
+|--------|-------------|
+| `pass_rate` | Fraction of samples where the expected substring is found in the response (case-insensitive) |
+
+**CI gate:** if `spec.evaluation.ciGate: true` and `spec.evaluation.thresholds.pass_rate` is set, the command exits `1` when the measured pass rate is below the threshold.
+
+**Sample output:**
+
+```
+  AgentSpec Evaluate — golden-qa
+  ─────────────────────────────────────────────────────────────────
+  Evaluating: golden-qa  42 samples  agent: http://localhost:4000
+
+  ✓   1  "What exercises for bad knees?" → found "low-impact" [0.12s]
+  ✓   2  "Design a 5-day plan" → found "rest day" [0.09s]
+  ✗   7  "Can I train every day?" → expected "recovery" not found [0.14s]
+
+  Results
+    pass_rate     86%  (threshold: 80%)  PASS
+
+  ciGate: PASS
+  Exit code: 0
+```
+
+**JSON output (`--json`):**
+
+```json
+{
+  "dataset": "golden-qa",
+  "agentUrl": "http://localhost:4000",
+  "totalSamples": 42,
+  "metrics": { "pass_rate": 0.86 },
+  "threshold": 0.8,
+  "ciGateResult": "PASS",
+  "samples": [...]
+}
+```
+
+Exit codes: `0` = evaluation complete (or ciGate not configured), `1` = ciGate threshold not met
+
+See [Probe Coverage](../concepts/probe-coverage.md) for how `agentspec evaluate` fits into the evidence tier system.
+
 ## `agentspec migrate`
 
 Migrate an `agent.yaml` manifest to the latest schema version.

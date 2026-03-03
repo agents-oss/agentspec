@@ -9,11 +9,14 @@ import { buildExplainRoutes } from './explain.js'
 import { buildExploreRoutes } from './explore.js'
 import { buildEvalRoutes } from './eval.js'
 import { buildGapRoutes } from './gap.js'
+import { buildEventsRoutes } from './events.js'
 
 export interface ControlPlaneOptions {
   logger?: boolean
   proxyUrl?: string
   startedAt?: number
+  /** OPA URL to use for /events behavioral evaluation. Defaults to config.opaUrl. */
+  opaUrl?: string | null
 }
 
 export async function buildControlPlaneApp(
@@ -30,7 +33,8 @@ export async function buildControlPlaneApp(
   await buildExplainRoutes(app, auditRing)
   await buildExploreRoutes(app, manifest, { startedAt: opts.startedAt })
   await buildEvalRoutes(app, manifest)
-  await buildGapRoutes(app, manifest)
+  await buildGapRoutes(app, manifest, auditRing)
+  await buildEventsRoutes(app, manifest, auditRing, { opaUrl: opts.opaUrl })
 
   return app
 }

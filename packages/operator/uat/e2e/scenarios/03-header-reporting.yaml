@@ -1,0 +1,47 @@
+# scenarios/03-header-reporting.yaml
+#
+# Verify the /explore endpoint returns live runtime capabilities for the agent.
+# /explore bridges declared spec (agent.yaml) with observed runtime state:
+# tools registered, model config status, uptime, etc.
+#
+# Agent: fitness-tracker (grade A — declares tools, exposes /capabilities).
+
+name: "Explore endpoint — fitness-tracker"
+agent: fitness-tracker
+proxy_port: 4006
+control_port: 4007
+
+steps:
+  - name: "GET /explore returns 200"
+    endpoint: control
+    method: GET
+    path: /explore
+    expect:
+      status: 200
+
+  - name: "Explore response has agent name"
+    endpoint: control
+    method: GET
+    path: /explore
+    expect:
+      status: 200
+      jq: ".agent.name"
+      equals: "fitness-tracker"
+
+  - name: "Explore response has model info"
+    endpoint: control
+    method: GET
+    path: /explore
+    expect:
+      status: 200
+      jq: ".model"
+      not_null: true
+
+  - name: "Explore response has tools declared in agent.yaml"
+    endpoint: control
+    method: GET
+    path: /explore
+    expect:
+      status: 200
+      jq: ".tools"
+      not_null: true

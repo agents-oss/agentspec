@@ -30,6 +30,33 @@ Output:
     https://owasp.org/www-project-top-10-for-large-language-model-applications/
 ```
 
+## Evidence Tiers
+
+Every audit rule and gap issue carries an **evidence tier** label that tells you what kind of evidence backs the finding:
+
+| Badge | Tier | Meaning |
+|-------|------|---------|
+| `[D]` | Declarative | Manifest analysis only — we read the YAML, no I/O required |
+| `[P]` | Probed | Health check verified at infrastructure level (`agentspec health`) |
+| `[B]` | Behavioral | Runtime events confirmed actual execution (sdk-langgraph + EventPush) |
+
+All current audit rules are `[D]` — declarative. The grade (A–F) reflects manifest declarations only.
+
+The `agentspec audit` output shows `[D]` badges next to each violation:
+
+```
+  [critical] [D] SEC-LLM-06 — Sensitive data disclosure
+    Long-term memory declared without piiScrubFields
+    → Add spec.memory.hygiene.piiScrubFields: [ssn, credit_card, bank_account]
+
+  Evidence Breakdown
+    [D] Declarative  18/22  (manifest declarations)
+    [P] Probed        N/A   (run `agentspec health <file>` for live checks)
+    [B] Behavioral    N/A   (no runtime events — deploy with sdk-langgraph + EventPush)
+```
+
+See [Probe Coverage](./probe-coverage.md) for a complete field-by-field matrix of what each tier verifies.
+
 ## Compliance Packs
 
 ### `owasp-llm-top10`

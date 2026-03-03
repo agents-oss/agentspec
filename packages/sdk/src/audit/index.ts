@@ -8,12 +8,16 @@ import { observabilityRules } from './rules/observability.rules.js'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type RuleSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
+/** Canonical severity type shared across packages. Alias of RuleSeverity. */
+export type Severity = RuleSeverity
 export type CompliancePack =
   | 'owasp-llm-top10'
   | 'model-resilience'
   | 'memory-hygiene'
   | 'evaluation-coverage'
   | 'observability'
+
+export type EvidenceLevel = 'declarative' | 'probed' | 'behavioral'
 
 export interface RuleResult {
   pass: boolean
@@ -29,6 +33,8 @@ export interface AuditRule {
   title: string
   description: string
   severity: RuleSeverity
+  /** What kind of evidence supports this rule's verdict */
+  evidenceLevel: EvidenceLevel
   check(manifest: AgentSpecManifest): RuleResult
 }
 
@@ -40,6 +46,14 @@ export interface AuditViolation {
   path?: string
   recommendation?: string
   references?: string[]
+  /** What kind of evidence supports this violation */
+  evidenceLevel: EvidenceLevel
+}
+
+export interface EvidenceBreakdown {
+  declarative: { passed: number; total: number }
+  probed: { passed: number; total: number }
+  behavioral: { passed: number; total: number }
 }
 
 export interface AuditReport {
@@ -53,6 +67,7 @@ export interface AuditReport {
   passedRules: number
   totalRules: number
   packBreakdown: Record<CompliancePack, { passed: number; total: number }>
+  evidenceBreakdown: EvidenceBreakdown
 }
 
 export interface SuppressionRecord {
@@ -88,7 +103,7 @@ const ALL_RULES: AuditRule[] = [
 ]
 
 // ── Grade thresholds ──────────────────────────────────────────────────────────
-function scoreToGrade(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
+export function scoreToGrade(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
   if (score >= 90) return 'A'
   if (score >= 75) return 'B'
   if (score >= 60) return 'C'
@@ -132,6 +147,11 @@ export function runAudit(
   // Run all rules
   const violations: AuditViolation[] = []
   const packBreakdown: Record<string, { passed: number; total: number }> = {}
+  const evidenceBreakdown: EvidenceBreakdown = {
+    declarative: { passed: 0, total: 0 },
+    probed:      { passed: 0, total: 0 },
+    behavioral:  { passed: 0, total: 0 },
+  }
 
   let totalWeight = 0
   let passedWeight = 0
@@ -144,19 +164,23 @@ export function runAudit(
 
     const suppressed = suppressedIds.has(rule.id)
     const weight = SEVERITY_WEIGHTS[rule.severity]
+    const tier = evidenceBreakdown[rule.evidenceLevel]
+
+    // Hoist totals — always increment regardless of suppression or pass/fail
+    packBreakdown[rule.pack]!.total += 1
+    tier.total += 1
 
     if (suppressed) {
-      // Suppressed rules are excluded from scoring
-      packBreakdown[rule.pack]!.total += 1
       packBreakdown[rule.pack]!.passed += 1 // count as pass for scoring purposes
+      tier.passed += 1
       continue
     }
 
     const result = rule.check(manifest)
-    packBreakdown[rule.pack]!.total += 1
 
     if (result.pass) {
       packBreakdown[rule.pack]!.passed += 1
+      tier.passed += 1
       passedWeight += weight
     } else {
       violations.push({
@@ -167,6 +191,7 @@ export function runAudit(
         path: result.path,
         recommendation: result.recommendation,
         references: result.references,
+        evidenceLevel: rule.evidenceLevel,
       })
     }
 
@@ -193,5 +218,6 @@ export function runAudit(
     passedRules: rules.length - violations.length,
     totalRules: rules.length,
     packBreakdown: packBreakdown as Record<CompliancePack, { passed: number; total: number }>,
+    evidenceBreakdown,
   }
 }

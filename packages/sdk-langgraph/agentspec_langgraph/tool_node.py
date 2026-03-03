@@ -228,4 +228,33 @@ class _InstrumentedTool:
             )
             raise
 
+    async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
+        start = time.monotonic()
+        try:
+            if callable(getattr(type(self._original), 'ainvoke', None)):
+                result = await self._original.ainvoke(*args, **kwargs)
+            elif inspect.iscoroutinefunction(self._original):
+                result = await self._original(*args, **kwargs)
+            else:
+                # Sync tool — run in executor to avoid blocking the event loop
+                import asyncio
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(None, lambda: self._original(*args, **kwargs))
+            latency_ms = (time.monotonic() - start) * 1000
+            self._node._record(
+                ToolCallEvent(name=self.name, latency_ms=latency_ms, success=True)
+            )
+            return result
+        except Exception as exc:
+            latency_ms = (time.monotonic() - start) * 1000
+            self._node._record(
+                ToolCallEvent(
+                    name=self.name,
+                    latency_ms=latency_ms,
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            raise
+
 

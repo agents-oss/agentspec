@@ -250,6 +250,11 @@ describe('audit command', () => {
     categoryScores: { security: 80, reliability: 90 },
     violations: [],
     suppressions: [],
+    evidenceBreakdown: {
+      declarative: { passed: 10, total: 12 },
+      probed:      { passed: 0, total: 0 },
+      behavioral:  { passed: 0, total: 0 },
+    },
   }
 
   it('displays human-readable audit output', async () => {
@@ -390,6 +395,33 @@ describe('audit command', () => {
     mockRunAudit.mockReturnValue(mockAuditReport)
     await run(['/fake/agent.yaml'])
     expect(mockRunAudit).toHaveBeenCalledWith(mockManifest, { packs: undefined })
+  })
+
+  it('shows [D] badge for declarative violations', async () => {
+    mockLoadManifest.mockReturnValue(mockLoadResult)
+    mockRunAudit.mockReturnValue({
+      ...mockAuditReport,
+      violations: [
+        {
+          ruleId: 'SEC-LLM-01',
+          title: 'Prompt injection guard',
+          severity: 'high',
+          message: 'No input guardrail',
+          evidenceLevel: 'declarative',
+        },
+      ],
+    })
+    await run(['/fake/agent.yaml'])
+    expect(logOutput()).toContain('[D]')
+  })
+
+  it('shows evidence breakdown footer', async () => {
+    mockLoadManifest.mockReturnValue(mockLoadResult)
+    mockRunAudit.mockReturnValue(mockAuditReport)
+    await run(['/fake/agent.yaml'])
+    const out = logOutput()
+    expect(out).toContain('Evidence')
+    expect(out).toContain('Declarative')
   })
 })
 

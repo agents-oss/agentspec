@@ -50,6 +50,7 @@ export default defineConfig({
           { text: 'Add Runtime Health', link: '/guides/add-runtime-health' },
           { text: 'Add Push Mode', link: '/guides/add-push-mode' },
           { text: 'CI Integration', link: '/guides/ci-integration' },
+          { text: 'E2E Testing', link: '/guides/e2e-testing' },
           { text: 'Migrate an Existing Agent', link: '/guides/migrate-existing-agent' },
           { text: 'Migrate GymCoach', link: '/guides/migrate-gymcoach' },
           { text: 'Migrate OpenAGI', link: '/guides/migrate-openagi' },

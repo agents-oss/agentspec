@@ -55,3 +55,17 @@ export function printError(msg: string): void {
 export function printSuccess(msg: string): void {
   console.log(chalk.green(`\n  ✓ ${msg}\n`))
 }
+
+/** Returns a chalk color function for a 0–100 score (green ≥75, yellow ≥50, red otherwise). */
+export function scoreColor(score: number): chalk.Chalk {
+  if (score >= 75) return chalk.green
+  if (score >= 50) return chalk.yellow
+  return chalk.red
+}
+
+/** Returns a chalk-colored string for a ciGate result. */
+export function formatCiGate(result: 'PASS' | 'FAIL' | 'N/A'): string {
+  if (result === 'PASS') return chalk.green('PASS')
+  if (result === 'FAIL') return chalk.red('FAIL')
+  return chalk.gray('N/A')
+}

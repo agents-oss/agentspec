@@ -69,8 +69,8 @@ helm upgrade  my-agent ./out/ -f out/values.yaml
 | `CONTROL_PLANE_PORT` | No | `4001` | Control plane listen port |
 | `ANTHROPIC_API_KEY` | No | — | Enables LLM gap analysis (`GET /agentspec/gap`) |
 | `AUDIT_RING_SIZE` | No | `1000` | Max audit ring entries retained in memory |
-| `OPA_URL` | No | — | OPA base URL (e.g. `http://localhost:8181`). When set, `/gap` calls OPA for behavioral violations AND the proxy evaluates every request. Fails-open if OPA is unreachable. |
-| `OPA_PROXY_MODE` | No | `track` | Per-request OPA mode on the proxy (port 4000). `track` — record violations in the audit ring and add `X-AgentSpec-OPA-Violations` header, but forward the request. `enforce` — block with `403 PolicyViolation` before forwarding. `off` — disable proxy OPA checks entirely. |
+| `OPA_URL` | No | — | OPA base URL (e.g. `http://localhost:8181`). When set, `/gap` calls OPA for behavioral violations AND the proxy evaluates agent response headers. Fails-open if OPA is unreachable. |
+| `OPA_PROXY_MODE` | No | `track` | HeaderReporting OPA mode on the proxy (port 4000). `track` — record violations in audit ring + `X-AgentSpec-OPA-Violations` header, never blocks. `enforce` — replace agent response with `403 PolicyViolation` when OPA denies. `off` — disable proxy OPA checks entirely. OPA is only called when the agent sets `X-AgentSpec-*` response headers (sdk-langgraph `AgentSpecMiddleware`). |
 
 `UPSTREAM_URL` and `MANIFEST_PATH` must be set correctly. The sidecar will fail to start if `UPSTREAM_URL` is not a valid `http://` or `https://` URL, or if port values are non-integer.
 
@@ -78,21 +78,25 @@ helm upgrade  my-agent ./out/ -f out/values.yaml
 
 ---
 
-## OPA Request Headers
+## OPA Behavioral Observation (HeaderReporting + EventPush)
 
-When `OPA_URL` is set, the proxy reads these headers from the incoming request to populate the OPA input document. Set them from your agent code (or `GuardrailMiddleware`) to give OPA the full runtime context it needs to enforce policies accurately.
+OPA now evaluates **real agent behavior** — not honor-system client headers. There are two reporting paths:
 
-| Header | Example | Description |
-|--------|---------|-------------|
-| `X-AgentSpec-Guardrails-Invoked` | `pii-detector,toxicity-filter` | Comma-separated list of guardrail types actually run on this request |
-| `X-AgentSpec-Tools-Called` | `plan-workout,log-session` | Comma-separated list of tools invoked |
-| `X-AgentSpec-User-Confirmed` | `true` | Set to `true` if the user explicitly confirmed a destructive action |
+### HeaderReporting — Agent response headers (sdk-langgraph `AgentSpecMiddleware`)
 
-When these headers are absent, the proxy uses worst-case defaults (`guardrails_invoked: []`, `tools_called: []`). In `track` mode this records a violation. In `enforce` mode, any declared guardrail will cause a 403.
+The `agentspec-langgraph` `AgentSpecMiddleware` sets internal headers on the agent's HTTP **response** after processing:
 
-The proxy sets `X-AgentSpec-OPA-Violations` on every response where violations fired (regardless of mode), so clients and upstream tooling can observe policy gaps.
+| Response header (agent → sidecar) | Description |
+|-----------------------------------|-------------|
+| `X-AgentSpec-Guardrails-Invoked` | Comma-separated guardrail types that actually ran |
+| `X-AgentSpec-Tools-Called` | Comma-separated tool names that were called |
+| `X-AgentSpec-User-Confirmed` | `true` if user confirmed a destructive action |
 
-In `enforce` mode, the sidecar returns a structured error **before** forwarding to the upstream agent:
+The sidecar proxy reads these in its `onResponse` callback and **strips them before forwarding to the client**. Clients never see these headers. OPA is only called when at least one behavioral header is present.
+
+The proxy sets `X-AgentSpec-OPA-Violations` on every response where violations fired (regardless of mode), so clients can observe policy gaps.
+
+In `enforce` mode, when OPA denies based on agent response headers:
 
 ```
 HTTP/1.1 403 Forbidden
@@ -102,7 +106,28 @@ Content-Type: application/json
 {"error":"PolicyViolation","blocked":true,"violations":["pii_detector_not_invoked"],"message":"Request blocked by OPA policy: pii_detector_not_invoked"}
 ```
 
-When OPA is unreachable the proxy **fails open** (forwards the request with a warning log) regardless of mode. Set `OPA_PROXY_MODE=off` to silence OPA calls entirely while keeping `OPA_URL` set for `/gap`.
+> **Note:** Unlike the old implementation, `enforce` mode evaluates the agent's response headers. The upstream agent **always** processes the request. Only the client-visible response is blocked (replaced with 403).
+
+### EventPush — Out-of-band event push (sdk-langgraph `SidecarClient`)
+
+The agent pushes behavioral events after each request via `POST /agentspec/events` on the control plane (port 4001). EventPush always records regardless of `OPA_PROXY_MODE`.
+
+```bash
+curl -X POST http://localhost:4001/agentspec/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "requestId": "<x-request-id from proxy>",
+    "agentName": "gymcoach",
+    "events": [
+      {"type":"guardrail","guardrailType":"pii-detector","invoked":true,"blocked":false},
+      {"type":"tool","name":"plan-workout","success":true,"latencyMs":82}
+    ]
+  }'
+# 200 {"requestId":"...","found":true,"opaViolations":[]}
+# 202 {"requestId":"...","found":false}  ← race (no retry needed)
+```
+
+When OPA is unreachable the proxy **fails open** (forwards the request) regardless of mode. Set `OPA_PROXY_MODE=off` to silence HeaderReporting OPA calls entirely while keeping `OPA_URL` set for `/gap` and EventPush.
 
 ---
 

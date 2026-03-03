@@ -1,0 +1,59 @@
+# scenarios/05-opa-track.yaml
+#
+# Verify that low-compliance agents surface real issues in /gap.
+# research-agent has score 20 (grade F) with multiple declared gaps.
+# trading-bot has score 55 (grade D) with multiple declared gaps.
+#
+# This confirms the gap engine detects and reports compliance failures
+# rather than silently passing everything.
+
+name: "Gap issues surfaced — research-agent and trading-bot"
+agent: research-agent
+proxy_port: 4008
+control_port: 4009
+
+steps:
+  - name: "research-agent GET /gap returns 200"
+    endpoint: control
+    method: GET
+    path: /gap
+    expect:
+      status: 200
+
+  - name: "research-agent has a non-zero issues list"
+    endpoint: control
+    method: GET
+    path: /gap
+    expect:
+      status: 200
+      jq: ".issues[0]"
+      not_null: true
+
+  - name: "research-agent issues have a property field"
+    endpoint: control
+    method: GET
+    path: /gap
+    expect:
+      status: 200
+      jq: ".issues[0].property"
+      not_null: true
+
+  - name: "research-agent issues have a severity field"
+    endpoint: control
+    method: GET
+    path: /gap
+    expect:
+      status: 200
+      jq: ".issues[0].severity"
+      not_null: true
+
+  - name: "research-agent score is below 45 (grade F)"
+    endpoint: control
+    method: GET
+    path: /gap
+    expect:
+      status: 200
+      # Score 20 < 45 → grade F.  We assert the score is present; range
+      # assertion is done in test_gap_scores.py.
+      jq: ".score"
+      not_null: true

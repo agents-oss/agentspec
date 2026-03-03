@@ -131,15 +131,61 @@ The `agentspec-langgraph` Python package provides this for LangGraph agents. It 
 
 See [LangGraph Runtime Instrumentation](../adapters/langgraph.md#runtime-behavioral-instrumentation) for the full integration guide.
 
-## Per-request proxy enforcement
+## Behavioral observation pipeline
 
-The sidecar proxy (port 4000) evaluates OPA on **every request** when `OPA_URL` is set. The mode is controlled by the `OPA_PROXY_MODE` env var:
+OPA needs to know what the agent *actually did* — which guardrails fired, which tools were called. This data comes from the `agentspec-langgraph` sub-SDK via one of two reporting paths:
 
-| Mode | Behaviour |
-|------|-----------|
-| `track` (default) | Record violations in the audit ring; add `X-AgentSpec-OPA-Violations` response header; forward the request. Safe for initial rollout — never blocks traffic. |
-| `enforce` | Block with `403 PolicyViolation` **before forwarding to the upstream agent**. Use after validating policies in `track` mode. |
-| `off` | Skip proxy OPA checks entirely. `/gap` still calls OPA if `OPA_URL` is set. |
+### HeaderReporting — Agent response headers
+
+`AgentSpecMiddleware` (FastAPI/Starlette) sets internal headers on the agent's HTTP response after each request completes:
+
+```
+X-AgentSpec-Guardrails-Invoked: pii-detector,toxicity-filter
+X-AgentSpec-Tools-Called: plan-workout
+X-AgentSpec-User-Confirmed: true
+```
+
+The sidecar proxy reads these in its `onResponse` callback, then **strips them before forwarding to the client**. Clients never see these headers.
+
+```python
+from fastapi import FastAPI
+from agentspec_langgraph import AgentSpecMiddleware
+
+app = FastAPI()
+app.add_middleware(AgentSpecMiddleware, guardrail_middleware=guardrail_mw)
+```
+
+### EventPush — Out-of-band event push
+
+`SidecarClient` pushes a batch of behavioral events to `POST /agentspec/events` after each request. This is fire-and-forget and swallows all errors.
+
+```python
+from agentspec_langgraph import GuardrailMiddleware, SidecarClient
+
+sidecar = SidecarClient(url="http://localhost:4001")
+middleware = GuardrailMiddleware(agent_name="gymcoach")
+
+async with middleware.new_request_context(
+    request_id=request.headers.get("x-request-id"),
+    sidecar_client=sidecar,
+) as ctx:
+    content = ctx.wrap("pii-detector", pii_fn)(user_input)
+# → On exit: events pushed to POST /agentspec/events
+```
+
+EventPush always records behavioral data regardless of `OPA_PROXY_MODE`. HeaderReporting (response headers) triggers OPA evaluation in the proxy.
+
+## Per-request proxy enforcement (HeaderReporting)
+
+The sidecar proxy (port 4000) evaluates OPA on agent response headers when `OPA_URL` is set. The mode is controlled by the `OPA_PROXY_MODE` env var:
+
+| Mode | Trigger | Behaviour |
+|------|---------|-----------|
+| `track` (default) | Agent response headers present | Record violations in the audit ring; add `X-AgentSpec-OPA-Violations` response header; forward the response to client. Safe for initial rollout — never blocks. |
+| `enforce` | Agent response headers present | If OPA denies: sidecar replaces agent response with `403 PolicyViolation`. Agent always processes the request; only the client-visible response is blocked. |
+| `off` | — | Skip proxy OPA checks entirely. `/gap` still calls OPA if `OPA_URL` is set. |
+
+> **Note:** If the agent does not set `X-AgentSpec-*` response headers (e.g. not using sdk-langgraph), OPA is not called and the request passes through regardless of mode. Use EventPush (`SidecarClient`) for agents that cannot use middleware.
 
 Configure globally (docker-compose or Helm):
 
@@ -163,7 +209,7 @@ Override per-pod with annotation: `agentspec.io/opa-proxy-mode: enforce`.
 
 ### 403 PolicyViolation response
 
-When `enforce` mode blocks a request, the sidecar returns before the upstream agent ever sees the request:
+When `enforce` mode blocks a request based on agent response headers, the sidecar replaces the upstream response with a 403:
 
 ```
 HTTP/1.1 403 Forbidden
@@ -180,25 +226,21 @@ Content-Type: application/json
 }
 ```
 
-### The honor system — and why it matters
+### Enforcement model
 
-The sidecar builds the OPA input from **request headers**. It does not observe what the agent actually executed. OPA knows `pii-detector` was invoked only because the caller said so via a header:
-
-| Incoming request header | OPA `input` field |
-|-------------------------|-------------------|
-| `X-AgentSpec-Guardrails-Invoked: pii-detector` | `guardrails_invoked: ["pii-detector"]` |
-| `X-AgentSpec-Tools-Called: plan-workout` | `tools_called: ["plan-workout"]` |
-| `X-AgentSpec-User-Confirmed: true` | `user_confirmed: true` |
-
-If a header is **absent**, the field defaults to empty. With `pii-detector` declared in `agent.yaml` and `guardrails_invoked: []`, OPA fires `pii_detector_not_invoked` immediately — because the caller did not declare that the guardrail ran.
-
-This is **declaration-based enforcement**, not execution-verified enforcement. A caller that sets the header without actually running the guardrail passes OPA. To close that gap, use a framework sub-SDK (`agentspec-langgraph` etc.) that sets these headers automatically from real guardrail invocations inside the agent's execution path.
+| Path | Mechanism | Real-time blocking |
+|------|-----------|-------------------|
+| `off` | No OPA calls | — |
+| `track` (HeaderReporting) | Record violations in audit ring + `X-AgentSpec-OPA-Violations` header | Never blocks |
+| `enforce` (HeaderReporting) | OPA evaluates agent response headers; if deny → 403 to client | ✅ Yes (client-side) |
+| EventPush | OPA evaluates pushed events retroactively; updates audit ring | ❌ No (observation) |
+| Agent-side | `GuardrailMiddleware.enforce_opa()` raises `PolicyViolationError` | ✅ Yes (in-process) |
 
 ## Framework sub-SDKs: the other half
 
-OPA evaluates an input document on every request. That document needs live runtime data — which guardrails were invoked, how many tokens were used, which tools were called. The sidecar builds a partial input from the manifest and probe data; for full behavioral coverage you also need a **framework sub-SDK** that intercepts the agent's execution path and sets the headers automatically.
+OPA evaluates an input document on every request. That document needs live runtime data — which guardrails were invoked, how many tokens were used, which tools were called. The sidecar builds a partial input from the manifest and probe data; for full behavioral coverage you also need a **framework sub-SDK** that intercepts the agent's execution path.
 
-The `agentspec-langgraph` Python package provides this for LangGraph agents. It intercepts tool calls, LLM calls, and guardrail invocations and sets `X-AgentSpec-*` headers on outgoing requests so that OPA receives ground truth rather than self-reported data.
+The `agentspec-langgraph` Python package provides this for LangGraph agents. It intercepts tool calls, LLM calls, and guardrail invocations and reports them via HeaderReporting (response headers) or EventPush (out-of-band event push).
 
 See [LangGraph Runtime Instrumentation](../adapters/langgraph.md#runtime-behavioral-instrumentation) for the full integration guide.
 

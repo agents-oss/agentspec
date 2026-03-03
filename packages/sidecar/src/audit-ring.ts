@@ -11,6 +11,15 @@ export interface AuditEntry {
   opaViolations?: string[]
   /** true when enforce mode blocked this request with a 403 before upstream. */
   opaBlocked?: boolean
+  // ── Behavioral fields (set by HeaderReporting or EventPush from the agent) ──
+  /** Guardrail types that actually ran during this request (from agent). */
+  guardrailsInvoked?: string[]
+  /** Tool names that were called during this request (from agent). */
+  toolsCalled?: string[]
+  /** Model calls recorded during this request. */
+  modelCalls?: { modelId: string; tokenCount: number }[]
+  /** true when OPA evaluated real behavioral data and allowed the request. */
+  behavioralCompliant?: boolean
 }
 
 /**
@@ -64,6 +73,29 @@ export class AuditRing {
       if (entry?.requestId === requestId) return entry
     }
     return undefined
+  }
+
+  /**
+   * Merge partial fields into an existing entry identified by requestId.
+   * Returns true if found and updated, false if not found.
+   * O(n) scan — same as findById.
+   */
+  updateById(requestId: string, partial: Partial<AuditEntry>): boolean {
+    for (let i = 0; i < this.count; i++) {
+      const entry = this.items[(this.head + i) % this.maxSize]
+      if (entry?.requestId === requestId) {
+        // Whitelist: only behavioral fields may be updated from untrusted EventPush.
+        // Identity fields (requestId, timestamp, method, path, statusCode, durationMs,
+        // upstreamMs, excerpt) are immutable after push().
+        if (partial.guardrailsInvoked !== undefined) entry.guardrailsInvoked = partial.guardrailsInvoked
+        if (partial.toolsCalled !== undefined) entry.toolsCalled = partial.toolsCalled
+        if (partial.modelCalls !== undefined) entry.modelCalls = partial.modelCalls
+        if (partial.behavioralCompliant !== undefined) entry.behavioralCompliant = partial.behavioralCompliant
+        if (partial.opaViolations !== undefined) entry.opaViolations = partial.opaViolations
+        return true
+      }
+    }
+    return false
   }
 
   /** Subscribe to new entries. Returns an unsubscribe function. */

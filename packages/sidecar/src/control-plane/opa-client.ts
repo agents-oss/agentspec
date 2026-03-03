@@ -282,6 +282,7 @@ export function opaViolationsToGapIssues(
   property: string
   description: string
   recommendation: string
+  evidenceLevel: 'behavioral'
 }> {
   return violations.map((id) => {
     const description = id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -290,6 +291,7 @@ export function opaViolationsToGapIssues(
       property: `opa:${id}`,
       description: `OPA policy violation: ${description}`,
       recommendation: opaRemediation(id),
+      evidenceLevel: 'behavioral' as const,
     }
   })
 }

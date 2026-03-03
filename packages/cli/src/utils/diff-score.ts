@@ -103,14 +103,5 @@ export const DIFF_SCORE_TABLE: Record<string, DiffScoreEntry> = {
   },
 }
 
-/**
- * Convert numeric compliance score to letter grade.
- * Matches the audit engine's grading scale.
- */
-export function scoreToGrade(score: number): string {
-  if (score >= 90) return 'A'
-  if (score >= 75) return 'B'
-  if (score >= 60) return 'C'
-  if (score >= 45) return 'D'
-  return 'F'
-}
+// Re-export the canonical scoreToGrade from the SDK — single source of truth
+export { scoreToGrade } from '@agentspec/sdk'

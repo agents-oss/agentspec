@@ -1,0 +1,56 @@
+# scenarios/04-event-push.yaml
+#
+# Verify the /gap endpoint surfaces compliance gaps from agent.yaml declarations.
+# /gap computes a 0-100 score and returns structured issues for each gap found.
+#
+# Agent: fitness-tracker (grade A — full compliance, score 100, no issues).
+# Agent: gymcoach is also checked for score 100 as a cross-agent assertion.
+
+name: "Gap endpoint — fitness-tracker"
+agent: fitness-tracker
+proxy_port: 4006
+control_port: 4007
+
+steps:
+  - name: "GET /gap returns 200"
+    endpoint: control
+    method: GET
+    path: /gap
+    expect:
+      status: 200
+
+  - name: "Gap response has a score field"
+    endpoint: control
+    method: GET
+    path: /gap
+    expect:
+      status: 200
+      jq: ".score"
+      not_null: true
+
+  - name: "Gap response has an issues list"
+    endpoint: control
+    method: GET
+    path: /gap
+    expect:
+      status: 200
+      jq: ".issues"
+      not_null: true
+
+  - name: "Gap response has an observed section"
+    endpoint: control
+    method: GET
+    path: /gap
+    expect:
+      status: 200
+      jq: ".observed"
+      not_null: true
+
+  - name: "fitness-tracker is grade A — score equals 100"
+    endpoint: control
+    method: GET
+    path: /gap
+    expect:
+      status: 200
+      jq: ".score"
+      equals: 100

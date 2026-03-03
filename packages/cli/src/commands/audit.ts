@@ -2,7 +2,7 @@ import type { Command } from 'commander'
 import { writeFileSync } from 'node:fs'
 import chalk from 'chalk'
 import { loadManifest, runAudit, type CompliancePack } from '@agentspec/sdk'
-import { formatGrade, formatSeverity, printHeader, printError } from '../utils/output.js'
+import { formatGrade, formatSeverity, printHeader, printError, scoreColor } from '../utils/output.js'
 
 export function registerAuditCommand(program: Command): void {
   program
@@ -65,7 +65,7 @@ export function registerAuditCommand(program: Command): void {
         console.log(chalk.bold('  Category Scores'))
         for (const [cat, score] of Object.entries(report.categoryScores)) {
           const bar = progressBar(score)
-          const color = score >= 75 ? chalk.green : score >= 50 ? chalk.yellow : chalk.red
+          const color = scoreColor(score)
           console.log(`    ${chalk.gray(cat.padEnd(24))} ${color(String(score).padStart(3))}% ${bar}`)
         }
         console.log()
@@ -76,8 +76,9 @@ export function registerAuditCommand(program: Command): void {
         } else {
           console.log(chalk.bold(`  Violations (${report.violations.length})`))
           for (const v of report.violations) {
+            const badge = evidenceBadge(v.evidenceLevel)
             console.log(
-              `\n  ${formatSeverity(v.severity)} ${chalk.bold(v.ruleId)} — ${chalk.white(v.title)}`,
+              `\n  ${formatSeverity(v.severity)} ${badge} ${chalk.bold(v.ruleId)} — ${chalk.white(v.title)}`,
             )
             console.log(`    ${chalk.gray(v.message)}`)
             if (v.path) {
@@ -102,6 +103,25 @@ export function registerAuditCommand(program: Command): void {
           }
         }
 
+        // Evidence breakdown footer
+        if (report.evidenceBreakdown) {
+          console.log()
+          console.log(chalk.bold('  Evidence Breakdown'))
+          const { declarative, probed, behavioral } = report.evidenceBreakdown
+          const dLabel = declarative.total > 0
+            ? `${declarative.passed}/${declarative.total}`
+            : 'N/A'
+          const pLabel = probed.total > 0
+            ? `${probed.passed}/${probed.total}`
+            : 'N/A  (run `agentspec health <file>` for live checks)'
+          const bLabel = behavioral.total > 0
+            ? `${behavioral.passed}/${behavioral.total}`
+            : 'N/A  (no runtime events — deploy with sdk-langgraph + EventPush)'
+          console.log(`    ${chalk.gray('[D]')} Declarative  ${chalk.cyan(dLabel)}  (manifest declarations)`)
+          console.log(`    ${chalk.gray('[P]')} Probed        ${chalk.cyan(pLabel)}`)
+          console.log(`    ${chalk.gray('[B]')} Behavioral    ${chalk.cyan(bLabel)}`)
+        }
+
         console.log()
 
         const threshold = parseInt(opts.failBelow ?? '0', 10)
@@ -121,6 +141,14 @@ function progressBar(score: number): string {
   const width = 20
   const filled = Math.round((score / 100) * width)
   const bar = '█'.repeat(filled) + '░'.repeat(width - filled)
-  const color = score >= 75 ? chalk.green : score >= 50 ? chalk.yellow : chalk.red
-  return color(bar)
+  return scoreColor(score)(bar)
+}
+
+function evidenceBadge(level: string | undefined): string {
+  switch (level) {
+    case 'declarative': return chalk.gray('[D]')
+    case 'probed':      return chalk.blue('[P]')
+    case 'behavioral':  return chalk.magenta('[B]')
+    default:            return chalk.gray('[D]')
+  }
 }
