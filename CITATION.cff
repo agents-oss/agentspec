@@ -19,8 +19,8 @@ version: "0.1.0"
 date-released: "2026-02-27"
 license: Apache-2.0
 
-repository-code: "https://github.com/agentspec/agentspec"
-url: "https://agentspec.io"
+repository-code: "https://github.com/agents-oss/agentspec"
+url: "https://agents-oss.github.io/agentspec/"
 
 keywords:
   - ai-agents
