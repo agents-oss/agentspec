@@ -7,10 +7,10 @@
 **Universal Agent Manifest System** — define, validate, health-check, audit, and generate any AI agent from a single `agent.yaml` file.
 
 ```bash
-npx agentspec validate agent.yaml  # Schema validation
-npx agentspec health agent.yaml    # Runtime health checks
-npx agentspec audit agent.yaml     # Compliance scoring (OWASP LLM Top 10)
-npx agentspec generate agent.yaml --framework langgraph
+agentspec validate agent.yaml  # Schema validation
+agentspec health agent.yaml    # Runtime health checks
+agentspec audit agent.yaml     # Compliance scoring (OWASP LLM Top 10)
+agentspec generate agent.yaml --framework langgraph
 ```
 
 ---
@@ -58,9 +58,6 @@ spec:
       description: "Log a completed training session"
       module: $file:tools/workouts.py
       function: log_workout
-      annotations:
-        readOnlyHint: false
-        destructiveHint: false
 
   memory:
     shortTerm:
@@ -104,37 +101,82 @@ spec:
 
 ---
 
-## Packages
+## Install
 
-| Package | Description |
-|---------|-------------|
-| `@agentspec/sdk` | Core: load, health, audit, generate registry |
-| `@agentspec/cli` | `agentspec` CLI (npx agentspec) |
-| `@agentspec/adapter-langgraph` | LangGraph Python code generator |
-| `@agentspec/adapter-crewai` | *(coming soon)* |
-| `@agentspec/adapter-mastra` | *(coming soon)* |
-| `@agentspec/adapter-autogen` | *(coming soon)* |
+### CLI
+
+```bash
+npm install -g @agentspec/cli
+agentspec --help
+```
+
+### Kubernetes (Operator + Sidecar)
+
+One-line install on any Kubernetes cluster:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/agents-oss/agentspec/main/install.sh | bash
+```
+
+Or with Helm directly:
+
+```bash
+helm install agentspec-operator \
+  oci://ghcr.io/agents-oss/charts/agentspec-operator \
+  --version 0.1.1 \
+  --namespace agentspec-system --create-namespace
+```
+
+### SDK (Node.js)
+
+```bash
+npm install @agentspec/sdk
+```
+
+---
+
+## Components
+
+### `@agentspec/sdk` — Core SDK
+The foundation. Loads and validates `agent.yaml`, runs runtime health checks, scores compliance against OWASP LLM Top 10, and exposes the adapter registry for code generation.
+
+### `@agentspec/cli` — CLI
+The `agentspec` command. Wraps the SDK with a terminal UI for `validate`, `health`, `audit`, `generate`, `init`, `scan`, `diff`, and `evaluate`.
+
+### `@agentspec/adapter-claude` — Agentic Code Generator
+Uses the Claude API to generate complete, runnable agent code from a manifest. Supports LangGraph, CrewAI, Mastra, and AutoGen. Requires `ANTHROPIC_API_KEY`.
+
+### `agentspec-sidecar` — Kubernetes Sidecar
+A Fastify proxy injected alongside agent pods by the operator. Exposes `/health/ready`, `/gap`, `/explore`, and `/audit` endpoints — live compliance and introspection without touching agent code. Docker image: `ghcr.io/agents-oss/agentspec-sidecar`.
+
+### `agentspec-operator` — Kubernetes Operator
+A Kopf-based Python operator that watches pods annotated with `agentspec.io/inject: "true"` and injects the sidecar automatically. Manages the `AgentObservation` CRD — visible in k9s as `:ao`. Docker image: `ghcr.io/agents-oss/agentspec-operator`.
+
+### `agentspec-control-plane` — Control Plane
+A FastAPI service that aggregates health and compliance data from all running agents. Provides a central dashboard and REST API for fleet-wide agent observability. Docker image: `ghcr.io/agents-oss/agentspec-control-plane`.
 
 ---
 
 ## Quick Start
 
 ```bash
-# Create a new manifest
-npx agentspec init
+# Install the CLI
+npm install -g @agentspec/cli
+
+# Create a new manifest interactively
+agentspec init
 
 # Validate schema
-npx agentspec validate agent.yaml
+agentspec validate agent.yaml
 
 # Check runtime dependencies
-npx agentspec health agent.yaml
+agentspec health agent.yaml
 
 # Compliance audit (OWASP LLM Top 10)
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 
-# Generate LangGraph code
-npm install @agentspec/adapter-langgraph
-npx agentspec generate agent.yaml --framework langgraph --output ./generated/
+# Generate LangGraph code (requires ANTHROPIC_API_KEY)
+agentspec generate agent.yaml --framework langgraph --output ./generated/
 ```
 
 ---
@@ -183,11 +225,11 @@ npx agentspec generate agent.yaml --framework langgraph --output ./generated/
 
 ```markdown
 ## Agent Manifest
-This project uses [AgentSpec](https://agentspec.io) for agent configuration.
+This project uses [AgentSpec](https://agents-oss.github.io/agentspec/) for agent configuration.
 See [agent.yaml](./agent.yaml) for the full manifest.
 
-Run `npx agentspec health` to check runtime dependencies.
-Run `npx agentspec audit` for compliance report.
+Run `agentspec health` to check runtime dependencies.
+Run `agentspec audit` for compliance report.
 ```
 
 ---
@@ -205,19 +247,19 @@ Run `npx agentspec audit` for compliance report.
 
 ## Documentation
 
-- [Quick Start](./docs/quick-start.md)
-- [Manifest Concepts](./docs/concepts/manifest.md)
-- [Health Checks](./docs/concepts/health-checks.md)
-- [Compliance & Audit](./docs/concepts/compliance.md)
-- [LangGraph Adapter](./docs/adapters/langgraph.md)
-- [GymCoach Migration Guide](./docs/guides/migrate-gymcoach.md)
-- [CLI Reference](./docs/reference/cli.md)
+Full documentation at **[agents-oss.github.io/agentspec](https://agents-oss.github.io/agentspec/)**
+
+- [Quick Start](https://agents-oss.github.io/agentspec/quick-start)
+- [Manifest Concepts](https://agents-oss.github.io/agentspec/concepts/manifest)
+- [Health Checks](https://agents-oss.github.io/agentspec/concepts/health-checks)
+- [Compliance & Audit](https://agents-oss.github.io/agentspec/concepts/compliance)
+- [CLI Reference](https://agents-oss.github.io/agentspec/reference/cli)
 
 ---
 
 ## Tech Stack
 
-TypeScript · pnpm workspaces · Zod · js-yaml · commander · vitest · tsup
+TypeScript · pnpm workspaces · Zod · js-yaml · commander · vitest · tsup · Python · Kopf · FastAPI · Fastify · Helm
 
 ---
 

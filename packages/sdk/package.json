@@ -40,7 +40,7 @@
     "schemas"
   ],
   "scripts": {
-    "prebuild": "cp -r ../../schemas ./schemas",
+    "prebuild": "rm -rf schemas && cp -r ../../schemas schemas",
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
