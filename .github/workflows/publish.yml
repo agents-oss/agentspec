@@ -42,26 +42,14 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Upgrade npm to 11.5.1+ (required for OIDC Trusted Publishing)
-        run: npm install -g npm@latest
+          # No registry-url: prevents setup-node from setting NODE_AUTH_TOKEN=GITHUB_TOKEN.
+          # npm Trusted Publisher docs say NODE_AUTH_TOKEN must NOT be set with OIDC auth.
 
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm build
 
       - run: pnpm test
-
-      - name: Configure npm for OIDC (overwrite npmrc — no auth token)
-        run: |
-          # setup-node writes _authToken + always-auth to $NPM_CONFIG_USERCONFIG.
-          # Any _authToken entry (even empty string) blocks OIDC fallback.
-          # Overwrite the entire file with only the registry URL so npm uses OIDC.
-          NPMRC="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
-          echo "registry=https://registry.npmjs.org/" > "$NPMRC"
-          echo "npm using config: $NPMRC"
-          cat "$NPMRC"
 
       - name: Extract version
         id: version
