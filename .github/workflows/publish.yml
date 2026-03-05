@@ -53,6 +53,16 @@ jobs:
 
       - run: pnpm test
 
+      - name: Configure npm for OIDC (overwrite npmrc — no auth token)
+        run: |
+          # setup-node writes _authToken + always-auth to $NPM_CONFIG_USERCONFIG.
+          # Any _authToken entry (even empty string) blocks OIDC fallback.
+          # Overwrite the entire file with only the registry URL so npm uses OIDC.
+          NPMRC="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          echo "registry=https://registry.npmjs.org/" > "$NPMRC"
+          echo "npm using config: $NPMRC"
+          cat "$NPMRC"
+
       - name: Extract version
         id: version
         run: |
