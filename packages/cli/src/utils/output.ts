@@ -1,4 +1,4 @@
-import chalk from 'chalk'
+import chalk, { type ChalkInstance } from 'chalk'
 
 export const symbols = {
   pass: chalk.green('✓'),
@@ -57,7 +57,7 @@ export function printSuccess(msg: string): void {
 }
 
 /** Returns a chalk color function for a 0–100 score (green ≥75, yellow ≥50, red otherwise). */
-export function scoreColor(score: number): chalk.Chalk {
+export function scoreColor(score: number): ChalkInstance {
   if (score >= 75) return chalk.green
   if (score >= 50) return chalk.yellow
   return chalk.red

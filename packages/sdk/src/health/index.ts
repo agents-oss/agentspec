@@ -63,6 +63,105 @@ export interface HealthCheckOptions {
   rawManifest?: unknown
 }
 
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+async function runSubagentChecks(
+  manifest: AgentSpecManifest,
+  opts: Pick<HealthCheckOptions, 'baseDir'>,
+): Promise<HealthCheck[]> {
+  const checks: HealthCheck[] = []
+  if (!manifest.spec.subagents) return checks
+
+  for (const sub of manifest.spec.subagents) {
+    const ref = sub.ref
+    if ('agentspec' in ref && opts.baseDir) {
+      const subPath = resolve(opts.baseDir, ref.agentspec)
+      const exists = existsSync(subPath)
+      checks.push({
+        id: `subagent:${sub.name}`,
+        category: 'subagent',
+        status: exists ? 'pass' : 'fail',
+        severity: 'warning',
+        message: exists
+          ? undefined
+          : `Sub-agent manifest not found: ${ref.agentspec}`,
+        remediation: exists
+          ? undefined
+          : `Create the sub-agent manifest at ${subPath}`,
+      })
+    } else if ('a2a' in ref) {
+      const rawUrl = ref.a2a.url
+      if (!rawUrl.startsWith('$')) {
+        const check = await checkA2aEndpoint(sub.name, rawUrl)
+        checks.push(check)
+      } else {
+        checks.push({
+          id: `subagent:${sub.name}`,
+          category: 'subagent',
+          status: 'skip',
+          severity: 'warning',
+          message: `Cannot check A2A endpoint: URL not resolved (${rawUrl})`,
+        })
+      }
+    }
+  }
+  return checks
+}
+
+function runEvalChecks(
+  manifest: AgentSpecManifest,
+  opts: Pick<HealthCheckOptions, 'baseDir'>,
+): HealthCheck[] {
+  const checks: HealthCheck[] = []
+  if (!manifest.spec.evaluation?.datasets || !opts.baseDir) return checks
+
+  for (const dataset of manifest.spec.evaluation.datasets) {
+    const path = dataset.path
+    if (!path.startsWith('$')) {
+      const absPath = resolve(opts.baseDir, path)
+      const exists = existsSync(absPath)
+      checks.push({
+        id: `eval:dataset:${dataset.name}`,
+        category: 'eval',
+        status: exists ? 'pass' : 'fail',
+        severity: 'info',
+        message: exists
+          ? undefined
+          : `Eval dataset not found: ${path}`,
+        remediation: exists
+          ? undefined
+          : `Create the dataset file at ${absPath}`,
+      })
+    }
+  }
+  return checks
+}
+
+function computeHealthStatus(checks: HealthCheck[]): {
+  status: HealthStatus
+  summary: { passed: number; failed: number; warnings: number; skipped: number }
+} {
+  const failed   = checks.filter((c) => c.status === 'fail')
+  const warnings = checks.filter((c) => c.status === 'warn')
+  const passed   = checks.filter((c) => c.status === 'pass')
+  const skipped  = checks.filter((c) => c.status === 'skip')
+
+  const hasErrors   = failed.some((c) => c.severity === 'error')
+  const hasWarnings = failed.some((c) => c.severity === 'warning') || warnings.length > 0
+
+  const status: HealthStatus = hasErrors ? 'unhealthy' : hasWarnings ? 'degraded' : 'healthy'
+
+  return {
+    status,
+    summary: {
+      passed:   passed.length,
+      failed:   failed.length,
+      warnings: warnings.length,
+      skipped:  skipped.length,
+    },
+  }
+}
+
 // ── Main health check runner ──────────────────────────────────────────────────
 
 export async function runHealthCheck(
@@ -75,128 +174,49 @@ export async function runHealthCheck(
   const rawManifest = opts.rawManifest ?? manifest
 
   // 1. Env var checks
-  const envChecks = runEnvChecks(manifest, rawManifest)
-  checks.push(...envChecks)
+  checks.push(...runEnvChecks(manifest, rawManifest))
 
   // 1b. Secret backend reachability
-  const secretChecks = await runSecretChecks()
-  checks.push(...secretChecks)
+  checks.push(...await runSecretChecks())
 
   // 2. File reference checks
   if (opts.baseDir) {
-    const fileChecks = runFileChecks(rawManifest, opts.baseDir)
-    checks.push(...fileChecks)
+    checks.push(...runFileChecks(rawManifest, opts.baseDir))
   }
 
   // 3. Model endpoint checks
   if (opts.checkModel !== false && manifest.spec.model) {
-    const modelChecks = await runModelChecks(manifest.spec.model)
-    checks.push(...modelChecks)
+    checks.push(...await runModelChecks(manifest.spec.model))
   }
 
   // 4. MCP server checks
   if (opts.checkMcp !== false && manifest.spec.mcp?.servers?.length) {
-    const mcpChecks = await runMcpChecks(manifest.spec.mcp.servers)
-    checks.push(...mcpChecks)
+    checks.push(...await runMcpChecks(manifest.spec.mcp.servers))
   }
 
   // 5. Memory backend checks
   if (opts.checkMemory !== false && manifest.spec.memory) {
-    const memChecks = await runMemoryChecks(manifest.spec.memory)
-    checks.push(...memChecks)
+    checks.push(...await runMemoryChecks(manifest.spec.memory))
   }
 
   // 6. Service connectivity checks (spec.requires.services)
   if (opts.checkServices !== false && manifest.spec.requires?.services?.length) {
-    const svcChecks = await runServiceChecks(manifest.spec.requires.services)
-    checks.push(...svcChecks)
+    checks.push(...await runServiceChecks(manifest.spec.requires.services))
   }
 
-  // 7. Sub-agent local file checks
-  if (manifest.spec.subagents) {
-    for (const sub of manifest.spec.subagents) {
-      const ref = sub.ref
-      if ('agentspec' in ref && opts.baseDir) {
-        const subPath = resolve(opts.baseDir, ref.agentspec)
-        const exists = existsSync(subPath)
-        checks.push({
-          id: `subagent:${sub.name}`,
-          category: 'subagent',
-          status: exists ? 'pass' : 'fail',
-          severity: 'warning',
-          message: exists
-            ? undefined
-            : `Sub-agent manifest not found: ${ref.agentspec}`,
-          remediation: exists
-            ? undefined
-            : `Create the sub-agent manifest at ${subPath}`,
-        })
-      } else if ('a2a' in ref) {
-        const rawUrl = ref.a2a.url
-        if (!rawUrl.startsWith('$')) {
-          const check = await checkA2aEndpoint(sub.name, rawUrl)
-          checks.push(check)
-        } else {
-          checks.push({
-            id: `subagent:${sub.name}`,
-            category: 'subagent',
-            status: 'skip',
-            severity: 'warning',
-            message: `Cannot check A2A endpoint: URL not resolved (${rawUrl})`,
-          })
-        }
-      }
-    }
-  }
+  // 7. Sub-agent local file / A2A endpoint checks
+  checks.push(...await runSubagentChecks(manifest, opts))
 
   // 8. Eval dataset file checks
-  if (manifest.spec.evaluation?.datasets && opts.baseDir) {
-    for (const dataset of manifest.spec.evaluation.datasets) {
-      const path = dataset.path
-      if (!path.startsWith('$')) {
-        const absPath = resolve(opts.baseDir, path)
-        const exists = existsSync(absPath)
-        checks.push({
-          id: `eval:dataset:${dataset.name}`,
-          category: 'eval',
-          status: exists ? 'pass' : 'fail',
-          severity: 'info',
-          message: exists
-            ? undefined
-            : `Eval dataset not found: ${path}`,
-          remediation: exists
-            ? undefined
-            : `Create the dataset file at ${absPath}`,
-        })
-      }
-    }
-  }
+  checks.push(...runEvalChecks(manifest, opts))
 
-  // ── Compute overall status ────────────────────────────────────────────────
-  const failed = checks.filter((c) => c.status === 'fail')
-  const warnings = checks.filter((c) => c.status === 'warn')
-  const passed = checks.filter((c) => c.status === 'pass')
-  const skipped = checks.filter((c) => c.status === 'skip')
-
-  const hasErrors = failed.some((c) => c.severity === 'error')
-  const hasWarnings = failed.some((c) => c.severity === 'warning') || warnings.length > 0
-
-  const status: HealthStatus = hasErrors
-    ? 'unhealthy'
-    : hasWarnings
-      ? 'degraded'
-      : 'healthy'
+  const { status, summary } = computeHealthStatus(checks)
 
   return {
     agentName: manifest.metadata.name,
     timestamp: new Date().toISOString(),
     status,
-    summary: {
-      passed: passed.length,
-      failed: failed.length,
-      warnings: warnings.length,
-      skipped: skipped.length,
-    },
+    summary,
     checks,
   }
 }

@@ -61,7 +61,7 @@ beforeEach(() => {
 
   vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
     if ((code ?? 0) !== 0) throw new ExitError(code ?? 0)
-  }) as unknown as (code?: number) => never)
+  }) as unknown as typeof process.exit)
 
   errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
@@ -148,7 +148,7 @@ describe('agentspec probe pii — correct arg assembly', () => {
     await runCommand(['probe', 'pii', 'agent.yaml', '--log-file', '/tmp/agent.log'])
     // Find the call that is the actual probe run (not --version)
     const probeCall = mockSpawnSync.mock.calls.find(
-      ([, args]: [string, string[]]) => args.includes('-m'),
+      (call) => (call as [string, string[]])[1]?.includes('-m'),
     )
     expect(probeCall).toBeDefined()
     const [, pyArgs] = probeCall as [string, string[]]
@@ -161,7 +161,7 @@ describe('agentspec probe pii — correct arg assembly', () => {
   it('passes multiple --text values', async () => {
     await runCommand(['probe', 'pii', 'agent.yaml', '--text', 'hello', '--text', 'world'])
     const probeCall = mockSpawnSync.mock.calls.find(
-      ([, args]: [string, string[]]) => args.includes('-m'),
+      (call) => (call as [string, string[]])[1]?.includes('-m'),
     )
     const [, pyArgs] = probeCall as [string, string[]]
     const textIdx = pyArgs.indexOf('--text')
@@ -177,7 +177,7 @@ describe('agentspec probe pii — correct arg assembly', () => {
       '--submit',
     ])
     const probeCall = mockSpawnSync.mock.calls.find(
-      ([, args]: [string, string[]]) => args.includes('-m'),
+      (call) => (call as [string, string[]])[1]?.includes('-m'),
     )
     const [, pyArgs] = probeCall as [string, string[]]
     expect(pyArgs).toContain('--sidecar-url')
@@ -188,7 +188,7 @@ describe('agentspec probe pii — correct arg assembly', () => {
   it('passes --threshold when provided', async () => {
     await runCommand(['probe', 'pii', 'agent.yaml', '--text', 'hello', '--threshold', '0.85'])
     const probeCall = mockSpawnSync.mock.calls.find(
-      ([, args]: [string, string[]]) => args.includes('-m'),
+      (call) => (call as [string, string[]])[1]?.includes('-m'),
     )
     const [, pyArgs] = probeCall as [string, string[]]
     expect(pyArgs).toContain('--threshold')
@@ -198,7 +198,7 @@ describe('agentspec probe pii — correct arg assembly', () => {
   it('passes --json flag when provided', async () => {
     await runCommand(['probe', 'pii', 'agent.yaml', '--text', 'hello', '--json'])
     const probeCall = mockSpawnSync.mock.calls.find(
-      ([, args]: [string, string[]]) => args.includes('-m'),
+      (call) => (call as [string, string[]])[1]?.includes('-m'),
     )
     const [, pyArgs] = probeCall as [string, string[]]
     expect(pyArgs).toContain('--json')

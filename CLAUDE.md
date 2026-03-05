@@ -42,6 +42,51 @@ agentspec/
 
 ## Design Principles
 
+### 0. Thin orchestrator + named helpers (preferred style for all new code)
+
+**This is the default way to write functions in this codebase.** Prefer many small, named functions over one large function — even before the code gets long.
+
+When writing new code, decompose by intent first:
+- If a block of logic has a name (even just in a comment), make it a function.
+- Orchestrators read like a pipeline of named steps; they contain no implementation details.
+- Helpers are pure or near-pure: explicit inputs, explicit output, no side effects on shared state.
+
+**Rule**: if you can label a code block with a comment like `// Phase 3: score results`, that label is the function name — extract it.
+
+**Template** (applied throughout this codebase):
+```typescript
+// ── Internal interfaces (module-private) ─────────────────────────────────────
+interface PhaseAResult { ... }
+interface PhaseBResult { ... }
+
+// ── Private helpers ────────────────────────────────────────────────────────────
+function phaseA(input: Input): PhaseAResult { ... }
+function phaseB(intermediate: PhaseAResult): PhaseBResult { ... }
+function phaseC(a: PhaseAResult, b: PhaseBResult): FinalResult { ... }
+
+// ── Public orchestrator ────────────────────────────────────────────────────────
+export function doThing(input: Input): FinalResult {
+  const a = phaseA(input)
+  const b = phaseB(a)
+  return phaseC(a, b)
+}
+```
+
+**Applied examples in this repo:**
+| File | Orchestrator | Extracted helpers |
+|------|-------------|-------------------|
+| `sdk/src/audit/index.ts` | `runAudit()` | `resolveActiveRules` · `collectSuppressions` · `executeRuleChecks` · `computeScoring` · `computeProvedScore` |
+| `sdk/src/health/index.ts` | `runHealthCheck()` | `runSubagentChecks` · `runEvalChecks` · `computeHealthStatus` |
+| `cli/src/commands/audit.ts` | action closure | `fetchProofRecords` · `printScoreSummary` · `formatEvidenceBreakdown` |
+| `cli/src/commands/generate.ts` | action closure | `validateFramework` · `handleK8sGeneration` · `handleLLMGeneration` · `writePushModeEnv` |
+| `cli/src/commands/evaluate.ts` | action closure | `resolveChatEndpoint` · `runInference` · `determineCiGateExit` |
+| `cli/src/commands/scan.ts` | action closure | `collectAndValidateSourceFiles` · `validateScanResponse` |
+| `sdk/src/agent/reporter.ts` | `startPushMode()` | `_pushHeartbeat` (private method) |
+
+**Helpers are always module-private** (not exported) unless reuse across files is proven necessary. Internal `interface` types for inter-helper data shapes are also module-private.
+
+---
+
 ### 1. Zod as single source of truth
 The `packages/sdk/src/schema/manifest.schema.ts` is the canonical definition.
 - Types are inferred from Zod with `z.infer<>`

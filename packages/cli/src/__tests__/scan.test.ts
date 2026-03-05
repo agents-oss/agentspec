@@ -304,9 +304,9 @@ describe('scan — CLI integration', () => {
 
   it('ANTHROPIC_API_KEY missing → exits 1', async () => {
     delete process.env['ANTHROPIC_API_KEY']
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number): never => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number): never => {
       throw new Error(`process.exit(${_code})`)
-    })
+    }) as unknown as typeof process.exit)
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     try {

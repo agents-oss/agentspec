@@ -22,6 +22,7 @@ const baseManifest: AgentSpecManifest = {
     },
     prompts: {
       system: '$file:prompts/system.md',
+      hotReload: false,
     },
   },
 }
@@ -69,7 +70,7 @@ function makeClaudeResponse(jsonContent: object | string): object {
 // ── context-builder tests ─────────────────────────────────────────────────────
 
 describe('buildContext()', () => {
-  let buildContext: (opts: { manifest: AgentSpecManifest; contextFiles?: string[] }) => string
+  let buildContext: (opts: { manifest: AgentSpecManifest; contextFiles?: string[]; manifestDir?: string }) => string
 
   beforeEach(async () => {
     const mod = await import('../context-builder.js')
@@ -119,7 +120,7 @@ describe('buildContext()', () => {
             name: 'log-workout',
             description: 'Log a workout',
             module: '$file:tool_implementations.py',
-          } as unknown as AgentSpecManifest['spec']['tools'][0],
+          } as unknown as NonNullable<AgentSpecManifest['spec']['tools']>[number],
         ],
       },
     }
@@ -143,7 +144,7 @@ describe('buildContext()', () => {
             name: 'log-workout',
             description: 'Log a workout',
             module: '$file:tool_implementations.py',
-          } as unknown as AgentSpecManifest['spec']['tools'][0],
+          } as unknown as NonNullable<AgentSpecManifest['spec']['tools']>[number],
         ],
       },
     }
@@ -233,7 +234,7 @@ describe('loadSkill() guidelines prepend', () => {
 describe('generateWithClaude()', () => {
   let generateWithClaude: (
     manifest: AgentSpecManifest,
-    opts: { framework: string; model?: string; contextFiles?: string[] },
+    opts: import('../index.js').ClaudeAdapterOptions,
   ) => Promise<import('@agentspec/sdk').GeneratedAgent>
 
   const savedKey = process.env['ANTHROPIC_API_KEY']

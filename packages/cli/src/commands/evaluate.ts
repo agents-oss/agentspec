@@ -10,7 +10,12 @@ import { printHeader, printError, scoreColor, formatCiGate } from '../utils/outp
 export interface DatasetSample {
   input: string
   expected: string
+  /** Retrieved chunks the agent used — required for faithfulness / context_precision / hallucination metrics. */
+  context?: string[]
+  /** Ground-truth relevant chunks — required for context_recall metric. */
+  reference_contexts?: string[]
   tags?: string[]
+  metadata?: Record<string, unknown>
 }
 
 export interface SampleResult {
@@ -54,7 +59,15 @@ export function loadDataset(datasetPath: string): DatasetSample[] {
         samples.push({
           input: parsed.input,
           expected: parsed.expected,
+          context: Array.isArray(parsed.context) ? (parsed.context as string[]) : undefined,
+          reference_contexts: Array.isArray(parsed.reference_contexts)
+            ? (parsed.reference_contexts as string[])
+            : undefined,
           tags: Array.isArray(parsed.tags) ? (parsed.tags as string[]) : undefined,
+          metadata:
+            parsed.metadata !== null && typeof parsed.metadata === 'object' && !Array.isArray(parsed.metadata)
+              ? (parsed.metadata as Record<string, unknown>)
+              : undefined,
         })
       }
     } catch {
@@ -171,6 +184,54 @@ export function printJSON(report: EvaluateReport): void {
   console.log(JSON.stringify(report, null, 2))
 }
 
+// ── Private helpers ────────────────────────────────────────────────────────────
+
+function resolveChatEndpoint(
+  manifest: { spec: { api?: { chatEndpoint?: { path?: string } } } },
+): string {
+  return (manifest.spec.api as { chatEndpoint?: { path?: string } } | undefined)
+    ?.chatEndpoint?.path ?? '/v1/chat'
+}
+
+async function runInference(
+  samples: DatasetSample[],
+  agentUrl: string,
+  chatPath: string,
+  timeoutMs: number,
+): Promise<SampleResult[]> {
+  const results: SampleResult[] = []
+  for (let i = 0; i < samples.length; i++) {
+    const sample = samples[i]!
+    const start = Date.now()
+    try {
+      const actual = await sendToAgent(agentUrl, chatPath, sample.input, timeoutMs)
+      results.push({
+        index: i,
+        input: sample.input,
+        expected: sample.expected,
+        actual,
+        pass: scoreStringMatch(sample.expected, actual),
+        latencyMs: Date.now() - start,
+      })
+    } catch (err) {
+      results.push({
+        index: i,
+        input: sample.input,
+        expected: sample.expected,
+        actual: null,
+        pass: false,
+        latencyMs: Date.now() - start,
+        error: String(err),
+      })
+    }
+  }
+  return results
+}
+
+function determineCiGateExit(report: EvaluateReport): void {
+  if (report.ciGateResult === 'FAIL') process.exit(1)
+}
+
 // ── Command registration ───────────────────────────────────────────────────────
 
 export function registerEvaluateCommand(program: Command): void {
@@ -219,7 +280,6 @@ export function registerEvaluateCommand(program: Command): void {
           process.exit(1)
         }
 
-        // Resolve $file: references
         const rawPath = datasetEntry.path
         const relPath = rawPath.startsWith('$file:') ? rawPath.slice(6) : rawPath
         const absPath = resolve(manifestDir, relPath)
@@ -242,47 +302,14 @@ export function registerEvaluateCommand(program: Command): void {
         if (opts.sampleSize) {
           const n = parseInt(opts.sampleSize, 10)
           if (n > 0 && n < samples.length) {
-            // Random sample without replacement
             const shuffled = [...samples].sort(() => Math.random() - 0.5)
             samples = shuffled.slice(0, n)
           }
         }
 
-        // ── Determine chat endpoint ────────────────────────────────────────────
-        const chatPath =
-          (manifest.spec.api as { chatEndpoint?: { path?: string } } | undefined)
-            ?.chatEndpoint?.path ?? '/v1/chat'
-
-        // ── Run inference ──────────────────────────────────────────────────────
-        const results: SampleResult[] = []
-        for (let i = 0; i < samples.length; i++) {
-          const sample = samples[i]!
-          const start = Date.now()
-          try {
-            const actual = await sendToAgent(opts.url, chatPath, sample.input, timeoutMs)
-            const pass = scoreStringMatch(sample.expected, actual)
-            results.push({
-              index: i,
-              input: sample.input,
-              expected: sample.expected,
-              actual,
-              pass,
-              latencyMs: Date.now() - start,
-            })
-          } catch (err) {
-            results.push({
-              index: i,
-              input: sample.input,
-              expected: sample.expected,
-              actual: null,
-              pass: false,
-              latencyMs: Date.now() - start,
-              error: String(err),
-            })
-          }
-        }
-
-        // ── Build and output report ────────────────────────────────────────────
+        // ── Run inference and report ───────────────────────────────────────────
+        const chatPath = resolveChatEndpoint(manifest)
+        const results = await runInference(samples, opts.url, chatPath, timeoutMs)
         const report = buildReport(results, opts.dataset, opts.url, manifest)
 
         if (opts.json) {
@@ -291,10 +318,7 @@ export function registerEvaluateCommand(program: Command): void {
           printTable(report)
         }
 
-        // ── Exit code based on ciGate ──────────────────────────────────────────
-        if (report.ciGateResult === 'FAIL') {
-          process.exit(1)
-        }
+        determineCiGateExit(report)
       },
     )
 }

@@ -76,9 +76,10 @@ export default defineConfig({
             text: 'Verification & CI',
             collapsed: false,
             items: [
-              { text: 'Integrate Proof Tools', link: '/guides/proof-integration' },
-              { text: 'CI Integration',        link: '/guides/ci-integration' },
-              { text: 'E2E Testing',           link: '/guides/e2e-testing' },
+              { text: 'Structure Evaluation Datasets', link: '/guides/evaluation-datasets' },
+              { text: 'Integrate Proof Tools',         link: '/guides/proof-integration' },
+              { text: 'CI Integration',                link: '/guides/ci-integration' },
+              { text: 'E2E Testing',                   link: '/guides/e2e-testing' },
             ],
           },
           {

@@ -277,7 +277,7 @@ describe('POST /mcp — tools/call', () => {
       method: 'tools/call',
       params: { name: 'nonexistent-tool', arguments: {} },
     })
-    const body = JSON.parse(res.body) as { error: { code: number } }
+    const body = JSON.parse(res.body) as { error: { code: number; message?: string } }
     expect(body.error.code).toBe(-32602)
     expect(body.error.message).toContain('nonexistent-tool')
   })

@@ -28,6 +28,7 @@ const minimalManifest: AgentSpecManifest = {
     },
     prompts: {
       system: 'You are a helpful assistant.',
+      hotReload: false,
     },
   },
 }
@@ -53,10 +54,12 @@ const fullManifest: AgentSpecManifest = {
     },
     prompts: {
       system: '$file:prompts/system.md',
+      hotReload: false,
     },
     api: {
       type: 'rest',
       port: 3000,
+      streaming: false,
     },
     requires: {
       envVars: ['OPENAI_API_KEY', 'DATABASE_URL', 'REDIS_URL'],

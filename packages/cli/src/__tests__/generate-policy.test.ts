@@ -364,7 +364,7 @@ describe('registerGeneratePolicyCommand CLI', () => {
     vi.clearAllMocks()
     vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       if ((code ?? 0) !== 0) throw new ExitError(code ?? 0)
-    }) as unknown as (code?: number) => never)
+    }) as unknown as typeof process.exit)
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   })

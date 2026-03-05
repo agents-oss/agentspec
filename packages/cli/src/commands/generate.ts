@@ -60,7 +60,75 @@ export function copyManifestToOutput(
   }
 }
 
-// ── Private display helpers ────────────────────────────────────────────────
+// ── Private helpers ────────────────────────────────────────────────────────────
+
+function validateFramework(framework: string): void {
+  let available: string[]
+  try {
+    available = listFrameworks()
+  } catch {
+    printError(
+      'Failed to load available frameworks. ' +
+        'Is @agentspec/adapter-claude installed correctly?',
+    )
+    process.exit(1)
+  }
+  if (!available.includes(framework)) {
+    printError(`Unknown framework "${framework}". Available: ${available.join(', ')}`)
+    process.exit(1)
+  }
+}
+
+function handleK8sGeneration(
+  manifest: Awaited<ReturnType<typeof loadManifest>>['manifest'],
+  outDir: string,
+  outputOpt: string,
+): void {
+  printHeader('AgentSpec Deploy — Kubernetes')
+  console.log()
+  try {
+    writeGeneratedFiles(generateK8sManifests(manifest), outDir)
+  } catch (err) {
+    printError(String(err))
+    process.exit(1)
+  }
+  printSuccess(`Written to ${outputOpt}`)
+}
+
+async function handleLLMGeneration(
+  manifest: Awaited<ReturnType<typeof loadManifest>>['manifest'],
+  framework: string,
+  manifestDir: string,
+  spin: ReturnType<typeof spinner>,
+  displayModel: string,
+): Promise<Awaited<ReturnType<typeof generateWithClaude>>> {
+  try {
+    return await generateWithClaude(manifest, {
+      framework,
+      manifestDir,
+      onProgress: ({ outputChars }) => {
+        const kb = (outputChars / 1024).toFixed(1)
+        spin.message(`Generating with ${displayModel} · ${kb}k chars`)
+      },
+    })
+  } catch (err) {
+    spin.stop('Generation failed')
+    printError(`Generation failed: ${String(err)}`)
+    process.exit(1)
+  }
+}
+
+function writePushModeEnv(outDir: string): void {
+  const envContent = [
+    'AGENTSPEC_URL=https://control-plane.agentspec.io',
+    'AGENTSPEC_KEY=<paste key from: agentspec register>',
+    '',
+  ].join('\n')
+  writeFileSync(join(outDir, '.env.agentspec'), envContent, 'utf-8')
+  console.log(
+    `  ${chalk.green('✓')} .env.agentspec (push mode — paste your key from agentspec register)`,
+  )
+}
 
 function printDryRunOutput(files: Record<string, string>): void {
   console.log()
@@ -133,24 +201,7 @@ export function registerGenerateCommand(program: Command): void {
         file: string,
         opts: { framework: string; output: string; dryRun?: boolean; deploy?: string; push?: boolean },
       ) => {
-        // Issue 3 fix: wrap listFrameworks() in try/catch for user-friendly error
-        let available: string[] = []
-        try {
-          available = listFrameworks()
-        } catch {
-          printError(
-            'Failed to load available frameworks. ' +
-              'Is @agentspec/adapter-claude installed correctly?',
-          )
-          process.exit(1)
-        }
-
-        if (!available.includes(opts.framework)) {
-          printError(
-            `Unknown framework "${opts.framework}". Available: ${available.join(', ')}`,
-          )
-          process.exit(1)
-        }
+        validateFramework(opts.framework)
 
         if (opts.deploy && !DEPLOY_TARGETS.includes(opts.deploy as DeployTarget)) {
           printError(
@@ -169,16 +220,7 @@ export function registerGenerateCommand(program: Command): void {
 
         // ── k8s deploy: deterministic, no LLM needed — early return ──────────
         if (opts.deploy === 'k8s') {
-          printHeader('AgentSpec Deploy — Kubernetes')
-          const outDir = resolve(opts.output)
-          console.log()
-          try {
-            writeGeneratedFiles(generateK8sManifests(parsed.manifest), outDir)
-          } catch (err) {
-            printError(String(err))
-            process.exit(1)
-          }
-          printSuccess(`Written to ${opts.output}`)
+          handleK8sGeneration(parsed.manifest, resolve(opts.output), opts.output)
           return
         }
 
@@ -198,22 +240,13 @@ export function registerGenerateCommand(program: Command): void {
         spin.start(`Generating with ${displayModel}`)
 
         const manifestDir = dirname(resolve(file))
-
-        let generated: Awaited<ReturnType<typeof generateWithClaude>>
-        try {
-          generated = await generateWithClaude(parsed.manifest, {
-            framework: opts.framework,
-            manifestDir,
-            onProgress: ({ outputChars }) => {
-              const kb = (outputChars / 1024).toFixed(1)
-              spin.message(`Generating with ${displayModel} · ${kb}k chars`)
-            },
-          })
-        } catch (err) {
-          spin.stop('Generation failed')
-          printError(`Generation failed: ${String(err)}`)
-          process.exit(1)
-        }
+        const generated = await handleLLMGeneration(
+          parsed.manifest,
+          opts.framework,
+          manifestDir,
+          spin,
+          displayModel,
+        )
 
         const totalKb = (
           Object.values(generated.files).reduce((n, c) => n + c.length, 0) / 1024
@@ -228,7 +261,6 @@ export function registerGenerateCommand(program: Command): void {
         const outDir = resolve(opts.output)
         console.log()
 
-        // Issue 2 fix: delegate to named, exported helper (testable in isolation)
         try {
           writeGeneratedFiles(generated.files, outDir)
         } catch (err) {
@@ -240,20 +272,10 @@ export function registerGenerateCommand(program: Command): void {
         // generate agent.yaml — Claude's updated langgraph.md skill always includes it)
         copyManifestToOutput(file, outDir, generated.files)
 
-        // ── push mode env file ────────────────────────────────────────────────
         if (opts.push) {
-          const envContent = [
-            'AGENTSPEC_URL=https://control-plane.agentspec.io',
-            'AGENTSPEC_KEY=<paste key from: agentspec register>',
-            '',
-          ].join('\n')
-          writeFileSync(join(outDir, '.env.agentspec'), envContent, 'utf-8')
-          console.log(
-            `  ${chalk.green('✓')} .env.agentspec (push mode — paste your key from agentspec register)`,
-          )
+          writePushModeEnv(outDir)
         }
 
-        // ── helm deploy: Claude-generated Helm chart (additional output) ──────
         if (opts.deploy === 'helm') {
           await runDeployTarget('helm', parsed.manifest, outDir)
         }

@@ -181,6 +181,49 @@ export function resolveOutputPath(opts: ScanOptions): string {
   return defaultPath
 }
 
+// ── Private helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Collect source files and emit cap warnings. Returns the files ready for scanning.
+ */
+function collectAndValidateSourceFiles(srcDir: string): SourceFile[] {
+  const files = collectSourceFiles(srcDir)
+  if (files.length === 0) {
+    console.warn(`No source files found in ${srcDir}`)
+  }
+  const rawCount = countSourceFiles(srcDir)
+  if (rawCount > MAX_FILES) {
+    console.warn(
+      `Found ${rawCount} source files — truncating to ${MAX_FILES} files cap. ` +
+      `Use a narrower --dir path to scan specific modules.`,
+    )
+  }
+  return files
+}
+
+/**
+ * Validate that Claude returned a well-formed response with an agent.yaml entry.
+ * Exits with a descriptive error on any structural mismatch.
+ */
+function validateScanResponse(rawResult: unknown): string {
+  if (
+    !rawResult ||
+    typeof rawResult !== 'object' ||
+    !('files' in rawResult) ||
+    typeof (rawResult as Record<string, unknown>).files !== 'object' ||
+    (rawResult as Record<string, unknown>).files === null
+  ) {
+    console.error('Claude returned an unexpected response format (missing "files" object).')
+    process.exit(1)
+  }
+  const agentYaml = (rawResult as { files: Record<string, string> }).files['agent.yaml']
+  if (!agentYaml) {
+    console.error('Claude did not return an agent.yaml in the output.')
+    process.exit(1)
+  }
+  return agentYaml
+}
+
 // ── Commander registration ─────────────────────────────────────────────────────
 
 export function registerScanCommand(program: Command): void {
@@ -201,22 +244,7 @@ export function registerScanCommand(program: Command): void {
       }
 
       const srcDir = resolve(opts.dir)
-
-      // Collect source files (caps enforced inside)
-      const sourceFiles = collectSourceFiles(srcDir)
-
-      if (sourceFiles.length === 0) {
-        console.warn(`No source files found in ${srcDir}`)
-      }
-
-      // Warn if capped (count without reading content — shares security rules)
-      const rawCount = countSourceFiles(srcDir)
-      if (rawCount > MAX_FILES) {
-        console.warn(
-          `Found ${rawCount} source files — truncating to ${MAX_FILES} files cap. ` +
-          `Use a narrower --dir path to scan specific modules.`
-        )
-      }
+      const sourceFiles = collectAndValidateSourceFiles(srcDir)
 
       const s = spinner()
       s.start('Analysing source code with Claude…')
@@ -227,7 +255,8 @@ export function registerScanCommand(program: Command): void {
       let rawResult: unknown
       try {
         rawResult = await generateWithClaude(
-          {}, // empty manifest — the scan skill generates one from source
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          {} as any, // empty manifest — the scan skill generates one from source
           {
             framework: 'scan',
             contextFiles: sourceFiles.map(f => f.path),
@@ -243,23 +272,7 @@ export function registerScanCommand(program: Command): void {
       s.stop('Analysis complete')
 
       // [H2] Runtime validation — never trust the cast alone
-      if (
-        !rawResult ||
-        typeof rawResult !== 'object' ||
-        !('files' in rawResult) ||
-        typeof (rawResult as Record<string, unknown>).files !== 'object' ||
-        (rawResult as Record<string, unknown>).files === null
-      ) {
-        console.error('Claude returned an unexpected response format (missing "files" object).')
-        process.exit(1)
-      }
-
-      const result = rawResult as { files: Record<string, string> }
-      const agentYaml = result.files['agent.yaml']
-      if (!agentYaml) {
-        console.error('Claude did not return an agent.yaml in the output.')
-        process.exit(1)
-      }
+      const agentYaml = validateScanResponse(rawResult)
 
       if (opts.dryRun) {
         console.log(agentYaml)

@@ -155,57 +155,57 @@ export class AgentSpecReporter {
 
     const intervalMs = (opts.intervalSeconds ?? 30) * 1_000
 
-    const push = async (): Promise<void> => {
-      try {
-        const health = await this.getReport()
-        const gap = runAudit(this.manifest)
-
-        // Build payload, cap at 64 KB by trimming checks
-        const trimmedChecks = [...health.checks]
-        let body = JSON.stringify({ health, gap })
-        if (body.length > 65_536) {
-          while (trimmedChecks.length > 0) {
-            trimmedChecks.pop()
-            body = JSON.stringify({ health: { ...health, checks: trimmedChecks }, gap })
-            if (body.length <= 65_536) break
-          }
-        }
-
-        let res: Response
-        try {
-          res = await fetch(`${opts.controlPlaneUrl}/api/v1/heartbeat`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${opts.apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body,
-          })
-        } catch (err) {
-          const sanitized = String(err).split(opts.apiKey).join('[REDACTED]')
-          opts.onError?.(new Error(sanitized))
-          return
-        }
-
-        if (!res.ok) {
-          opts.onError?.(new Error(`Heartbeat failed: HTTP ${res.status}`))
-        }
-      } catch (err) {
-        const sanitized = String(err).split(opts.apiKey).join('[REDACTED]')
-        opts.onError?.(new Error(sanitized))
-      }
-    }
-
     // Fire immediately (non-blocking)
-    void push()
+    void this._pushHeartbeat(opts)
 
     this._pushTimer = setInterval(() => {
-      void push()
+      void this._pushHeartbeat(opts)
     }, intervalMs)
 
     // Don't prevent Node.js from exiting
     if (this._pushTimer.unref) {
       this._pushTimer.unref()
+    }
+  }
+
+  private async _pushHeartbeat(opts: PushModeOptions): Promise<void> {
+    try {
+      const health = await this.getReport()
+      const gap = runAudit(this.manifest)
+
+      // Build payload, cap at 64 KB by trimming checks
+      const trimmedChecks = [...health.checks]
+      let body = JSON.stringify({ health, gap })
+      if (body.length > 65_536) {
+        while (trimmedChecks.length > 0) {
+          trimmedChecks.pop()
+          body = JSON.stringify({ health: { ...health, checks: trimmedChecks }, gap })
+          if (body.length <= 65_536) break
+        }
+      }
+
+      let res: Response
+      try {
+        res = await fetch(`${opts.controlPlaneUrl}/api/v1/heartbeat`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${opts.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body,
+        })
+      } catch (err) {
+        const sanitized = String(err).split(opts.apiKey).join('[REDACTED]')
+        opts.onError?.(new Error(sanitized))
+        return
+      }
+
+      if (!res.ok) {
+        opts.onError?.(new Error(`Heartbeat failed: HTTP ${res.status}`))
+      }
+    } catch (err) {
+      const sanitized = String(err).split(opts.apiKey).join('[REDACTED]')
+      opts.onError?.(new Error(sanitized))
     }
   }
 

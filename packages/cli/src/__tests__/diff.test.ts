@@ -292,9 +292,9 @@ describe('diff — CLI integration', () => {
       '  guardrails: {}',
     ].join('\n'))
 
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number): never => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number): never => {
       throw new Error(`process.exit(${_code})`)
-    })
+    }) as unknown as typeof process.exit)
 
     try {
       await expect(runDiff(from, to, ['--exit-code'])).rejects.toThrow('process.exit(1)')

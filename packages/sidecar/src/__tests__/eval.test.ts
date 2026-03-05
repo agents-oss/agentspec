@@ -55,6 +55,7 @@ function makeEvalManifest(datasetPath: string): AgentSpecManifest {
       evaluation: {
         framework: 'deepeval',
         datasets: [{ name: 'workout-qa', path: datasetPath }],
+        ciGate: false,
       },
     },
   }

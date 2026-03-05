@@ -160,25 +160,39 @@ export function scoreToGrade(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
   return 'F'
 }
 
-// ── Main audit runner ─────────────────────────────────────────────────────────
+// ── Internal interfaces ───────────────────────────────────────────────────────
 
-export function runAudit(
-  manifest: AgentSpecManifest,
-  opts: AuditOptions = {},
-): AuditReport {
-  // Determine which packs to run
+interface ScoringResult {
+  violations: AuditViolation[]
+  packBreakdown: Record<string, { passed: number; total: number }>
+  evidenceBreakdown: EvidenceBreakdown
+  totalWeight: number
+  overallScore: number
+  categoryScores: Record<string, number>
+}
+
+interface ProvedResult {
+  provedScore: number
+  provedGrade: 'A' | 'B' | 'C' | 'D' | 'F'
+  pendingProofCount: number
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+function resolveActiveRules(manifest: AgentSpecManifest, opts: AuditOptions): AuditRule[] {
   const manifestPacks = manifest.spec.compliance?.packs ?? []
   const activePacks: CompliancePack[] =
     opts.packs ??
     (opts.useManifestPacks !== false && manifestPacks.length > 0
       ? manifestPacks
       : ([...new Set(ALL_RULES.map((r) => r.pack))] as CompliancePack[]))
+  return ALL_RULES.filter((r) => activePacks.includes(r.pack))
+}
 
-
-  // Filter rules by active packs
-  const rules = ALL_RULES.filter((r) => activePacks.includes(r.pack))
-
-  // Collect suppressions
+function collectSuppressions(manifest: AgentSpecManifest): {
+  suppressions: SuppressionRecord[]
+  suppressedIds: Set<string>
+} {
   const suppressions: SuppressionRecord[] =
     manifest.spec.compliance?.suppressions?.map((s) => ({
       ruleId: s.rule,
@@ -193,7 +207,14 @@ export function runAudit(
       .map((s) => s.ruleId),
   )
 
-  // Pre-run all checks (single pass, results stored for reuse)
+  return { suppressions, suppressedIds }
+}
+
+function executeRuleChecks(
+  rules: AuditRule[],
+  manifest: AgentSpecManifest,
+  suppressedIds: Set<string>,
+): Map<string, RuleResult> {
   const ruleResults = new Map<string, RuleResult>()
   for (const rule of rules) {
     ruleResults.set(
@@ -201,8 +222,14 @@ export function runAudit(
       suppressedIds.has(rule.id) ? { pass: true } : rule.check(manifest),
     )
   }
+  return ruleResults
+}
 
-  // ── Main scoring pass ─────────────────────────────────────────────────────
+function computeScoring(
+  rules: AuditRule[],
+  ruleResults: Map<string, RuleResult>,
+  suppressedIds: Set<string>,
+): ScoringResult {
   const violations: AuditViolation[] = []
   const packBreakdown: Record<string, { passed: number; total: number }> = {}
   const evidenceBreakdown: EvidenceBreakdown = {
@@ -216,7 +243,6 @@ export function runAudit(
   let passedWeight = 0
 
   for (const rule of rules) {
-    // Init pack tracking
     if (!packBreakdown[rule.pack]) {
       packBreakdown[rule.pack] = { passed: 0, total: 0 }
     }
@@ -226,12 +252,11 @@ export function runAudit(
     const result = ruleResults.get(rule.id)!
     const tier = evidenceBreakdown[rule.evidenceLevel]
 
-    // Hoist totals — always increment regardless of suppression or pass/fail
     packBreakdown[rule.pack]!.total += 1
     tier.total += 1
 
     if (suppressed) {
-      packBreakdown[rule.pack]!.passed += 1 // count as pass for scoring purposes
+      packBreakdown[rule.pack]!.passed += 1
       tier.passed += 1
       continue
     }
@@ -261,67 +286,85 @@ export function runAudit(
   const overallScore =
     totalWeight === 0 ? 100 : Math.round((passedWeight / totalWeight) * 100)
 
-  // Category scores (by pack)
   const categoryScores: Record<string, number> = {}
   for (const [pack, { passed, total }] of Object.entries(packBreakdown)) {
     categoryScores[pack] = total === 0 ? 100 : Math.round((passed / total) * 100)
   }
 
-  // ── Proved score pass (only when proofRecords provided) ───────────────────
-  let provedScore: number | undefined
-  let provedGrade: 'A' | 'B' | 'C' | 'D' | 'F' | undefined
-  let pendingProofCount: number | undefined
+  return { violations, packBreakdown, evidenceBreakdown, totalWeight, overallScore, categoryScores }
+}
 
-  if (opts.proofRecords !== undefined) {
-    const now = new Date()
-    const proofSet = new Set(
-      opts.proofRecords
-        .filter((r) => !r.expiresAt || new Date(r.expiresAt) > now)
-        .map((r) => r.ruleId),
-    )
-    let provedPassedWeight = 0
+function computeProvedScore(
+  rules: AuditRule[],
+  ruleResults: Map<string, RuleResult>,
+  suppressedIds: Set<string>,
+  totalWeight: number,
+  proofRecords: ProofRecord[],
+): ProvedResult {
+  const now = new Date()
+  const proofSet = new Set(
+    proofRecords
+      .filter((r) => !r.expiresAt || new Date(r.expiresAt) > now)
+      .map((r) => r.ruleId),
+  )
 
-    for (const rule of rules) {
-      if (suppressedIds.has(rule.id)) continue
-      const result = ruleResults.get(rule.id)!
-      const weight = SEVERITY_WEIGHTS[rule.severity]
+  let provedPassedWeight = 0
+  for (const rule of rules) {
+    if (suppressedIds.has(rule.id)) continue
+    const result = ruleResults.get(rule.id)!
+    const weight = SEVERITY_WEIGHTS[rule.severity]
 
-      const isProved =
-        (rule.evidenceLevel === 'probed' && result.pass) ||
-        (rule.evidenceLevel === 'behavioral' && result.pass) ||
-        (rule.evidenceLevel === 'external' && proofSet.has(rule.id))
+    const isProved =
+      (rule.evidenceLevel === 'probed' && result.pass) ||
+      (rule.evidenceLevel === 'behavioral' && result.pass) ||
+      (rule.evidenceLevel === 'external' && proofSet.has(rule.id))
 
-      if (isProved) provedPassedWeight += weight
-    }
-
-    provedScore =
-      totalWeight === 0 ? 100 : Math.round((provedPassedWeight / totalWeight) * 100)
-    provedGrade = scoreToGrade(provedScore)
-
-    // pendingProofCount: external rules that pass declaratively but lack a proof record
-    pendingProofCount = rules.filter(
-      (r) =>
-        r.evidenceLevel === 'external' &&
-        !suppressedIds.has(r.id) &&
-        ruleResults.get(r.id)!.pass &&
-        !proofSet.has(r.id),
-    ).length
+    if (isProved) provedPassedWeight += weight
   }
 
+  const provedScore =
+    totalWeight === 0 ? 100 : Math.round((provedPassedWeight / totalWeight) * 100)
+
+  const pendingProofCount = rules.filter(
+    (r) =>
+      r.evidenceLevel === 'external' &&
+      !suppressedIds.has(r.id) &&
+      ruleResults.get(r.id)!.pass &&
+      !proofSet.has(r.id),
+  ).length
+
+  return { provedScore, provedGrade: scoreToGrade(provedScore), pendingProofCount }
+}
+
+// ── Main audit runner ─────────────────────────────────────────────────────────
+
+export function runAudit(
+  manifest: AgentSpecManifest,
+  opts: AuditOptions = {},
+): AuditReport {
+  const rules                           = resolveActiveRules(manifest, opts)
+  const { suppressions, suppressedIds } = collectSuppressions(manifest)
+  const ruleResults                     = executeRuleChecks(rules, manifest, suppressedIds)
+  const { violations, packBreakdown,
+          evidenceBreakdown, totalWeight,
+          overallScore, categoryScores } = computeScoring(rules, ruleResults, suppressedIds)
+
+  const proved = opts.proofRecords !== undefined
+    ? computeProvedScore(rules, ruleResults, suppressedIds, totalWeight, opts.proofRecords)
+    : {}
+
   return {
-    agentName: manifest.metadata.name,
-    timestamp: new Date().toISOString(),
+    agentName:     manifest.metadata.name,
+    timestamp:     new Date().toISOString(),
     overallScore,
-    grade: scoreToGrade(overallScore),
+    grade:         scoreToGrade(overallScore),
     categoryScores,
     violations,
     suppressions,
-    passedRules: rules.length - violations.length,
-    totalRules: rules.length,
+    passedRules:   rules.length - violations.length,
+    totalRules:    rules.length,
     packBreakdown: packBreakdown as Record<CompliancePack, { passed: number; total: number }>,
     evidenceBreakdown,
-    provedScore,
-    provedGrade,
-    pendingProofCount,
+    ...proved,
   }
 }

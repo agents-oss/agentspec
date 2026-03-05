@@ -378,7 +378,8 @@ describe('generate — listFrameworks error handling', () => {
   let outDir: string
   let consoleLogSpy: ReturnType<typeof vi.spyOn>
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>
-  let exitSpy: ReturnType<typeof vi.spyOn>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let exitSpy: any
 
   beforeEach(async () => {
     outDir = mkdtempSync(join(tmpdir(), 'agentspec-lfe-test-'))
@@ -386,9 +387,9 @@ describe('generate — listFrameworks error handling', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     // Prevent process.exit from actually terminating the test runner
-    exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number): never => {
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number): never => {
       throw new Error(`process.exit(${_code})`)
-    })
+    }) as unknown as typeof process.exit)
   })
 
   afterEach(() => {
@@ -537,16 +538,17 @@ describe('generate — writeGeneratedFiles error catch', () => {
   let outDir: string
   let consoleLogSpy: ReturnType<typeof vi.spyOn>
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>
-  let exitSpy: ReturnType<typeof vi.spyOn>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let exitSpy: any
 
   beforeEach(() => {
     outDir = mkdtempSync(join(tmpdir(), 'agentspec-wgf-err-'))
     process.env['ANTHROPIC_API_KEY'] = 'test-key'
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number): never => {
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number): never => {
       throw new Error(`process.exit(${_code})`)
-    })
+    }) as unknown as typeof process.exit)
     vi.clearAllMocks()
   })
 
@@ -562,9 +564,11 @@ describe('generate — writeGeneratedFiles error catch', () => {
     // Return a path traversal filename that writeGeneratedFiles will reject
     const { generateWithClaude } = await import('@agentspec/adapter-claude')
     vi.mocked(generateWithClaude).mockResolvedValueOnce({
+      framework: 'langgraph',
       files: { '../../evil.txt': 'malicious content' },
       installCommands: [],
       envVars: [],
+      readme: '',
     })
 
     const { registerGenerateCommand } = await import('../commands/generate.js')
@@ -677,9 +681,11 @@ describe('generate --deploy helm', () => {
   it('calls generateWithClaude twice when --deploy helm is set', async () => {
     const { generateWithClaude } = await import('@agentspec/adapter-claude')
     vi.mocked(generateWithClaude).mockResolvedValue({
+      framework: 'langgraph',
       files: { 'agent.py': '# agent', 'agent.yaml': '# manifest' },
       installCommands: [],
       envVars: [],
+      readme: '',
     })
 
     await runGenerateWithDeploy(outDir, 'helm')
