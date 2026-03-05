@@ -137,6 +137,6 @@ chore: bump @anthropic-ai/sdk to 0.40
 
 ## See Also
 
-- [CONTRIBUTING.md](../CONTRIBUTING.md) — root-level contribution guide
+- [CONTRIBUTING.md](https://github.com/agents-oss/agentspec/blob/main/CONTRIBUTING.md) — root-level contribution guide
 - [CLI Reference](./reference/cli.md)
-- [docs/CLAUDE.md](./CLAUDE.md) — documentation writing standards
+- [docs/CLAUDE.md](https://github.com/agents-oss/agentspec/blob/main/docs/CLAUDE.md) — documentation writing standards

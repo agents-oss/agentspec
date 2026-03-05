@@ -314,4 +314,4 @@ EventPush always records regardless of `OPA_PROXY_MODE`.
 
 - [OPA Policy Guide](./opa-policy.md) — generate and deploy OPA policies from `agent.yaml`
 - [OPA Concepts](../concepts/opa.md) — HeaderReporting vs EventPush, enforcement modes
-- [RUNBOOK.md](../../RUNBOOK.md) — operator runbook, port reference, env vars
+- [RUNBOOK.md](https://github.com/agents-oss/agentspec/blob/main/RUNBOOK.md) — operator runbook, port reference, env vars
