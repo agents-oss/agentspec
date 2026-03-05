@@ -1,6 +1,6 @@
 {
   "name": "@agentspec/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AgentSpec CLI — validate, health, audit, generate, init",
   "author": "Sallah Kokaina <sallah.kokaina@gmail.com>",
   "license": "Apache-2.0",
@@ -10,14 +10,24 @@
     "url": "https://github.com/agents-oss/agentspec.git",
     "directory": "packages/cli"
   },
-  "bugs": { "url": "https://github.com/agents-oss/agentspec/issues" },
-  "keywords": ["ai-agents", "agent-manifest", "llm", "cli", "agentspec"],
+  "bugs": {
+    "url": "https://github.com/agents-oss/agentspec/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "agent-manifest",
+    "llm",
+    "cli",
+    "agentspec"
+  ],
   "type": "module",
   "bin": {
     "agentspec": "./dist/cli.js"
   },
   "main": "./dist/cli.js",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
