@@ -1,5 +1,8 @@
 name: Publish to npm
 
+# Uses npm Trusted Publishing (OIDC provenance) — no NPM_TOKEN required.
+# Authentication happens automatically via GitHub OIDC.
+
 on:
   push:
     tags:
@@ -17,7 +20,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -39,6 +42,15 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Upgrade npm (required for OIDC Trusted Publishing)
+        run: npm install -g npm@latest
+
+      - name: Verify npm version
+        run: |
+          npm --version
+          echo "npm >=9.5 required for OIDC Trusted Publishing"
 
       - run: pnpm install --frozen-lockfile
 
@@ -57,19 +69,24 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Publishing version: $VERSION"
 
-      # pnpm replaces workspace:* with the real version before publishing.
-      # NODE_AUTH_TOKEN must not be set — npm uses OIDC Trusted Publishing automatically.
+      # pnpm pack resolves workspace:* to real versions before npm publishes.
       - name: Publish @agentspec/sdk
-        working-directory: packages/sdk
-        run: pnpm publish --no-git-checks --access public --provenance
+        run: |
+          cd packages/sdk
+          pnpm pack
+          npm publish agentspec-sdk-*.tgz --access public --provenance
 
       - name: Publish @agentspec/adapter-claude
-        working-directory: packages/adapter-claude
-        run: pnpm publish --no-git-checks --access public --provenance
+        run: |
+          cd packages/adapter-claude
+          pnpm pack
+          npm publish agentspec-adapter-claude-*.tgz --access public --provenance
 
       - name: Publish @agentspec/cli
-        working-directory: packages/cli
-        run: pnpm publish --no-git-checks --access public --provenance
+        run: |
+          cd packages/cli
+          pnpm pack
+          npm publish agentspec-cli-*.tgz --access public --provenance
 
       - name: Job summary
         run: |
