@@ -1,0 +1,60 @@
+name: Publish Helm Chart
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Package and push Helm chart to GHCR OCI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: '3.x'
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+          else
+            echo "value=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Patch Chart.yaml version
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          CHART="packages/operator/helm/agentspec-operator/Chart.yaml"
+          sed -i "s/^version:.*/version: ${VERSION}/" "$CHART"
+          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" "$CHART"
+
+      - name: Helm registry login
+        run: |
+          helm registry login ghcr.io \
+            -u "${{ github.actor }}" \
+            -p "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Package chart
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          helm package packages/operator/helm/agentspec-operator/ --version "$VERSION"
+
+      - name: Push chart to GHCR OCI
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          helm push "agentspec-operator-${VERSION}.tgz" oci://ghcr.io/agents-oss/charts

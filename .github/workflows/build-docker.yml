@@ -1,0 +1,79 @@
+name: Build & Push Docker Images
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sidecar
+            image: agentspec-sidecar
+            file: packages/sidecar/Dockerfile
+            context: .
+          - name: operator
+            image: agentspec-operator
+            file: packages/operator/Dockerfile
+            context: packages/operator
+          - name: control-plane
+            image: agentspec-control-plane
+            file: packages/control-plane/Dockerfile
+            context: packages/control-plane
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+          else
+            echo "value=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/agents-oss/${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.value }}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max

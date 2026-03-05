@@ -3,8 +3,8 @@
 
 operator:
   image:
-    repository: ghcr.io/agentspec/operator
-    tag: ""   # defaults to Chart.appVersion
+    repository: ghcr.io/agents-oss/agentspec-operator
+    tag: latest   # override with --set operator.image.tag=X.Y.Z for pinned deploys
     pullPolicy: IfNotPresent
 
   replicas: 1
@@ -112,7 +112,7 @@ webhook:
 
   # Sidecar image injected into annotated pods.
   # Pin to a SHA digest in production for supply-chain security.
-  sidecarImage: "ghcr.io/agentspec/sidecar:latest"
+  sidecarImage: "ghcr.io/agents-oss/agentspec-sidecar:latest"
 
   # ── OPA policy enforcement sidecar ─────────────────────────────────────────
   # When opa.enabled is true, the webhook injects an OPA container alongside

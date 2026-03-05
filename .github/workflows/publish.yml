@@ -72,8 +72,8 @@ jobs:
         working-directory: packages/sdk
         run: pnpm publish --no-git-checks --access public --provenance
 
-      - name: Publish @agentspec/adapter-langgraph
-        working-directory: packages/adapter-langgraph
+      - name: Publish @agentspec/adapter-claude
+        working-directory: packages/adapter-claude
         run: pnpm publish --no-git-checks --access public --provenance
 
       - name: Publish @agentspec/cli
@@ -89,14 +89,14 @@ jobs:
           ### Published Packages
 
           - \`@agentspec/sdk@${{ steps.version.outputs.version }}\`
-          - \`@agentspec/adapter-langgraph@${{ steps.version.outputs.version }}\`
+          - \`@agentspec/adapter-claude@${{ steps.version.outputs.version }}\`
           - \`@agentspec/cli@${{ steps.version.outputs.version }}\`
 
           ### Installation
 
           \`\`\`bash
           npm install @agentspec/sdk
-          npm install @agentspec/adapter-langgraph
+          npm install @agentspec/adapter-claude
           npm install -g @agentspec/cli
           \`\`\`
 
@@ -112,5 +112,5 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Packages:**" >> $GITHUB_STEP_SUMMARY
           echo "- \`@agentspec/sdk@${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`@agentspec/adapter-langgraph@${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`@agentspec/adapter-claude@${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`@agentspec/cli@${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY

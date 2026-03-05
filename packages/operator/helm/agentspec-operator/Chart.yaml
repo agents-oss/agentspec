@@ -12,8 +12,8 @@ keywords:
   - observability
   - compliance
   - agentspec
-home: https://github.com/agentspec/agentboot
+home: https://github.com/agents-oss/agentspec
 sources:
-  - https://github.com/agentspec/agentboot/tree/main/packages/operator
+  - https://github.com/agents-oss/agentspec/tree/main/packages/operator
 maintainers:
   - name: AgentSpec

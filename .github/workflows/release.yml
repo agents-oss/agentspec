@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options: [patch, minor, major]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Bump version, tag, and create release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Calculate new version
+        id: semver
+        run: |
+          CURRENT=$(node -p "require('./packages/sdk/package.json').version")
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+
+          case "${{ inputs.bump }}" in
+            major) NEW_VER="$((MAJOR + 1)).0.0" ;;
+            minor) NEW_VER="${MAJOR}.$((MINOR + 1)).0" ;;
+            patch) NEW_VER="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+          esac
+
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "new=$NEW_VER" >> $GITHUB_OUTPUT
+          echo "Bumping $CURRENT → $NEW_VER (${{ inputs.bump }})"
+
+      - name: Update package versions
+        run: |
+          NEW_VER="${{ steps.semver.outputs.new }}"
+          for pkg in packages/sdk packages/adapter-claude packages/cli; do
+            (cd "$pkg" && npm version "$NEW_VER" --no-git-tag-version)
+          done
+
+      - name: Update Helm Chart.yaml
+        run: |
+          NEW_VER="${{ steps.semver.outputs.new }}"
+          CHART="packages/operator/helm/agentspec-operator/Chart.yaml"
+          sed -i "s/^version:.*/version: $NEW_VER/" "$CHART"
+          sed -i "s/^appVersion:.*/appVersion: \"$NEW_VER\"/" "$CHART"
+
+      - name: Commit, tag, and push
+        run: |
+          NEW_VER="${{ steps.semver.outputs.new }}"
+          git add packages/sdk/package.json \
+                  packages/adapter-claude/package.json \
+                  packages/cli/package.json \
+                  packages/operator/helm/agentspec-operator/Chart.yaml
+          git commit -m "chore: release v${NEW_VER}"
+          git tag "v${NEW_VER}"
+          git push origin main --tags
+
+      - name: Create GitHub Release
+        run: |
+          NEW_VER="${{ steps.semver.outputs.new }}"
+          gh release create "v${NEW_VER}" \
+            --title "AgentSpec v${NEW_VER}" \
+            --generate-notes \
+            --notes "## Install
+
+\`\`\`bash
+curl -fsSL https://raw.githubusercontent.com/agents-oss/agentspec/main/install.sh | bash
+\`\`\`
+
+## Helm
+
+\`\`\`bash
+helm install agentspec-operator oci://ghcr.io/agents-oss/charts/agentspec-operator --version ${NEW_VER}
+\`\`\`
+
+## npm
+
+\`\`\`bash
+npm install @agentspec/sdk@${NEW_VER}
+npm install @agentspec/adapter-claude@${NEW_VER}
+npm install -g @agentspec/cli@${NEW_VER}
+\`\`\`"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -21,10 +21,12 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    }
+    },
+    "./schemas/v1/agent.schema.json": "./schemas/v1/agent.schema.json"
   },
-  "files": ["dist"],
+  "files": ["dist", "schemas"],
   "scripts": {
+    "prebuild": "cp -r ../../schemas ./schemas",
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
