@@ -1,6 +1,6 @@
 {
   "name": "@agentspec/adapter-claude",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AgentSpec agentic adapter — uses Claude API to generate complete agent code from agent.yaml",
   "author": "Sallah Kokaina <sallah.kokaina@gmail.com>",
   "license": "Apache-2.0",
@@ -10,8 +10,17 @@
     "url": "https://github.com/agents-oss/agentspec.git",
     "directory": "packages/adapter-claude"
   },
-  "bugs": { "url": "https://github.com/agents-oss/agentspec/issues" },
-  "keywords": ["ai-agents", "agent-manifest", "claude", "anthropic", "agentspec", "code-generation"],
+  "bugs": {
+    "url": "https://github.com/agents-oss/agentspec/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "agent-manifest",
+    "claude",
+    "anthropic",
+    "agentspec",
+    "code-generation"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,7 +30,9 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup && mkdir -p dist/skills && cp src/skills/*.md dist/skills/",
     "dev": "tsup --watch",
