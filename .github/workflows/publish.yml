@@ -1,8 +1,5 @@
 name: Publish to npm
 
-# Uses npm Trusted Publishing (OIDC provenance) — no NPM_TOKEN required.
-# Authentication happens automatically via GitHub OIDC.
-
 on:
   push:
     tags:
@@ -42,8 +39,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          # No registry-url: prevents setup-node from setting NODE_AUTH_TOKEN=GITHUB_TOKEN.
-          # npm Trusted Publisher docs say NODE_AUTH_TOKEN must NOT be set with OIDC auth.
+          registry-url: 'https://registry.npmjs.org'
 
       - run: pnpm install --frozen-lockfile
 
@@ -66,6 +62,8 @@ jobs:
         run: |
           cd packages/sdk
           npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Resolve workspace deps for adapter-claude
         run: |
@@ -81,6 +79,8 @@ jobs:
         run: |
           cd packages/adapter-claude
           npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Resolve workspace deps for cli
         run: |
@@ -98,6 +98,8 @@ jobs:
         run: |
           cd packages/cli
           npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Job summary
         run: |
