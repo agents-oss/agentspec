@@ -84,27 +84,30 @@ jobs:
       - name: Create GitHub Release
         run: |
           NEW_VER="${{ steps.semver.outputs.new }}"
+          cat > /tmp/release-notes.md << EOF
+          ## Install
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/agents-oss/agentspec/main/install.sh | bash
+          \`\`\`
+
+          ## Helm
+
+          \`\`\`bash
+          helm install agentspec-operator oci://ghcr.io/agents-oss/charts/agentspec-operator --version ${NEW_VER}
+          \`\`\`
+
+          ## npm
+
+          \`\`\`bash
+          npm install @agentspec/sdk@${NEW_VER}
+          npm install @agentspec/adapter-claude@${NEW_VER}
+          npm install -g @agentspec/cli@${NEW_VER}
+          \`\`\`
+          EOF
           gh release create "v${NEW_VER}" \
             --title "AgentSpec v${NEW_VER}" \
             --generate-notes \
-            --notes "## Install
-
-\`\`\`bash
-curl -fsSL https://raw.githubusercontent.com/agents-oss/agentspec/main/install.sh | bash
-\`\`\`
-
-## Helm
-
-\`\`\`bash
-helm install agentspec-operator oci://ghcr.io/agents-oss/charts/agentspec-operator --version ${NEW_VER}
-\`\`\`
-
-## npm
-
-\`\`\`bash
-npm install @agentspec/sdk@${NEW_VER}
-npm install @agentspec/adapter-claude@${NEW_VER}
-npm install -g @agentspec/cli@${NEW_VER}
-\`\`\`"
+            --notes-file /tmp/release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

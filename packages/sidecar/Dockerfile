@@ -18,6 +18,7 @@ COPY packages/sidecar/tsup.config.ts ./packages/sidecar/tsup.config.ts
 RUN pnpm install --frozen-lockfile
 
 # Copy source
+COPY schemas ./schemas
 COPY packages/sdk ./packages/sdk
 COPY packages/sidecar/src ./packages/sidecar/src
 COPY packages/sidecar/tsconfig.json ./packages/sidecar/tsconfig.json
