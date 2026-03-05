@@ -42,15 +42,12 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Upgrade npm (required for OIDC Trusted Publishing)
         run: npm install -g npm@latest
 
-      - name: Verify npm version
-        run: |
-          npm --version
-          echo "npm >=9.5 required for OIDC Trusted Publishing"
+      - name: Configure npm registry (no _authToken — OIDC handles auth)
+        run: npm config set registry https://registry.npmjs.org/
 
       - run: pnpm install --frozen-lockfile
 
@@ -69,32 +66,42 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Publishing version: $VERSION"
 
-      - name: Debug OIDC claims
-        run: |
-          TOKEN=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=npm" | jq -r '.value')
-          echo "--- OIDC claims ---"
-          echo "$TOKEN" | cut -d'.' -f2 | base64 -d 2>/dev/null | python3 -m json.tool || \
-          echo "$TOKEN" | cut -d'.' -f2 | python3 -c "import sys,base64,json; d=sys.stdin.read().strip(); d+='=='*(-len(d)%4); print(json.dumps(json.loads(base64.b64decode(d)),indent=2))"
-
-      # pnpm pack resolves workspace:* to real versions before npm publishes.
       - name: Publish @agentspec/sdk
         run: |
           cd packages/sdk
-          pnpm pack
-          npm publish agentspec-sdk-*.tgz --access public --provenance
+          npm publish --access public --provenance
+
+      - name: Resolve workspace deps for adapter-claude
+        run: |
+          SDK_VER=$(node -p "require('./packages/sdk/package.json').version")
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('./packages/adapter-claude/package.json'));
+            pkg.dependencies['@agentspec/sdk'] = pkg.dependencies['@agentspec/sdk'].replace('workspace:*', '$SDK_VER');
+            fs.writeFileSync('./packages/adapter-claude/package.json', JSON.stringify(pkg, null, 2));
+          "
 
       - name: Publish @agentspec/adapter-claude
         run: |
           cd packages/adapter-claude
-          pnpm pack
-          npm publish agentspec-adapter-claude-*.tgz --access public --provenance
+          npm publish --access public --provenance
+
+      - name: Resolve workspace deps for cli
+        run: |
+          SDK_VER=$(node -p "require('./packages/sdk/package.json').version")
+          ADAPTER_VER=$(node -p "require('./packages/adapter-claude/package.json').version")
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('./packages/cli/package.json'));
+            pkg.dependencies['@agentspec/sdk'] = pkg.dependencies['@agentspec/sdk'].replace('workspace:*', '$SDK_VER');
+            pkg.dependencies['@agentspec/adapter-claude'] = pkg.dependencies['@agentspec/adapter-claude'].replace('workspace:*', '$ADAPTER_VER');
+            fs.writeFileSync('./packages/cli/package.json', JSON.stringify(pkg, null, 2));
+          "
 
       - name: Publish @agentspec/cli
         run: |
           cd packages/cli
-          pnpm pack
-          npm publish agentspec-cli-*.tgz --access public --provenance
+          npm publish --access public --provenance
 
       - name: Job summary
         run: |
