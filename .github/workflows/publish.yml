@@ -15,6 +15,9 @@ on:
       version:
         required: true
         type: string
+    secrets:
+      NPM_TOKEN:
+        required: true
 
 permissions:
   contents: write
@@ -39,7 +42,11 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: 'https://registry.npmjs.org'
+
+      - name: Authenticate with npm
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          npm whoami
 
       - run: pnpm install --frozen-lockfile
 
@@ -62,8 +69,6 @@ jobs:
         run: |
           cd packages/sdk
           npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Resolve workspace deps for adapter-claude
         run: |
@@ -79,8 +84,6 @@ jobs:
         run: |
           cd packages/adapter-claude
           npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Resolve workspace deps for cli
         run: |
@@ -98,8 +101,6 @@ jobs:
         run: |
           cd packages/cli
           npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Job summary
         run: |
