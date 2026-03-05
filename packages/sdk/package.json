@@ -1,6 +1,6 @@
 {
   "name": "@agentspec/sdk",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "AgentSpec SDK — load, validate, health-check, audit, and generate from agent.yaml",
   "author": "Sallah Kokaina <sallah.kokaina@gmail.com>",
   "license": "Apache-2.0",
