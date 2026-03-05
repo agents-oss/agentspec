@@ -40,21 +40,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
 
       - name: Upgrade npm to 11.5.1+ (required for OIDC Trusted Publishing)
         run: npm install -g npm@latest
-
-      - name: Remove _authToken so npm uses OIDC exclusively
-        run: |
-          # setup-node writes auth to $NPM_CONFIG_USERCONFIG (in $RUNNER_TEMP), NOT ~/.npmrc
-          if [ -f "${NPM_CONFIG_USERCONFIG}" ]; then
-            sed -i '/\/\/registry\.npmjs\.org\/:_authToken/d' "${NPM_CONFIG_USERCONFIG}"
-          fi
-          sed -i '/\/\/registry\.npmjs\.org\/:_authToken/d' ~/.npmrc || true
-          echo "NODE_AUTH_TOKEN=" >> $GITHUB_ENV
 
       - run: pnpm install --frozen-lockfile
 
