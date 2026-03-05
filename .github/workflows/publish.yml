@@ -69,6 +69,14 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Publishing version: $VERSION"
 
+      - name: Debug OIDC claims
+        run: |
+          TOKEN=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=npm" | jq -r '.value')
+          echo "--- OIDC claims ---"
+          echo "$TOKEN" | cut -d'.' -f2 | base64 -d 2>/dev/null | python3 -m json.tool || \
+          echo "$TOKEN" | cut -d'.' -f2 | python3 -c "import sys,base64,json; d=sys.stdin.read().strip(); d+='=='*(-len(d)%4); print(json.dumps(json.loads(base64.b64decode(d)),indent=2))"
+
       # pnpm pack resolves workspace:* to real versions before npm publishes.
       - name: Publish @agentspec/sdk
         run: |
