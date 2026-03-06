@@ -24,6 +24,7 @@ jobs:
       - uses: helm/kind-action@v1
         with:
           config: packages/operator/uat/kind-cluster.yaml
+          cluster_name: agentspec
 
       # ── Install cert-manager ──────────────────────────────────────────────────
       - name: Install cert-manager
