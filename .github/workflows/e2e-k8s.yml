@@ -1,0 +1,102 @@
+name: Operator K8s E2E
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  e2e-k8s:
+    name: Operator K8s E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # ── Create kind cluster ───────────────────────────────────────────────────
+      - uses: helm/kind-action@v1
+        with:
+          config: packages/operator/uat/kind-cluster.yaml
+
+      # ── Install cert-manager ──────────────────────────────────────────────────
+      - name: Install cert-manager
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.3/cert-manager.yaml
+          kubectl -n cert-manager rollout status deployment/cert-manager --timeout=120s
+          kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=120s
+
+      # ── Build + load operator image ───────────────────────────────────────────
+      - name: Build operator image
+        run: docker build -t agentspec-operator:ci -f packages/operator/Dockerfile packages/operator
+
+      - name: Load operator image into kind
+        run: kind load docker-image agentspec-operator:ci
+
+      # ── Build + load sidecar image ────────────────────────────────────────────
+      - name: Build sidecar image
+        run: docker build -t agentspec-sidecar:ci -f packages/sidecar/Dockerfile .
+
+      - name: Load sidecar image into kind
+        run: |
+          kind load docker-image agentspec-sidecar:ci
+          # Also tag as agentspec/sidecar:local to match the demo deployment manifests
+          docker tag agentspec-sidecar:ci agentspec/sidecar:local
+          kind load docker-image agentspec/sidecar:local
+
+      # ── Helm install operator ─────────────────────────────────────────────────
+      - name: Helm install agentspec-operator
+        run: |
+          helm upgrade --install agentspec-operator \
+            packages/operator/helm/agentspec-operator \
+            --namespace agentspec-system --create-namespace \
+            --set operator.image.repository=agentspec-operator \
+            --set operator.image.tag=ci \
+            --set operator.image.pullPolicy=Never \
+            --set webhook.sidecarImage=agentspec-sidecar:ci \
+            --set webhook.enabled=true \
+            --wait --timeout=120s
+
+      # ── Deploy gymcoach demo agent ────────────────────────────────────────────
+      - name: Create demo namespace
+        run: kubectl create namespace demo --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy gymcoach
+        run: kubectl apply -f packages/operator/demo/gymcoach/
+
+      - name: Wait for gymcoach rollout
+        run: kubectl rollout status deployment/gymcoach --namespace demo --timeout=90s
+
+      # ── Run E2E tests ─────────────────────────────────────────────────────────
+      - name: Install test dependencies
+        run: pip install pytest httpx
+
+      - name: Run operator E2E tests
+        run: pytest packages/operator/test/e2e/ -v --timeout=60
+
+      # ── Debug artifacts on failure ────────────────────────────────────────────
+      - name: Collect debug info
+        if: always()
+        run: |
+          kubectl get agentobservations -A -o yaml > /tmp/agentobservations.yaml || true
+          kubectl get pods -A -o wide > /tmp/pods.txt || true
+          kubectl logs -n demo deployment/gymcoach -c sidecar --tail=100 > /tmp/sidecar.log 2>/dev/null || true
+          kubectl logs -n agentspec-system deployment/agentspec-operator --tail=100 > /tmp/operator.log 2>/dev/null || true
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-k8s-debug
+          path: |
+            /tmp/agentobservations.yaml
+            /tmp/pods.txt
+            /tmp/sidecar.log
+            /tmp/operator.log
+          retention-days: 3
