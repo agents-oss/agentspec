@@ -30,8 +30,11 @@ jobs:
       - name: Install cert-manager
         run: |
           kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.3/cert-manager.yaml
-          kubectl -n cert-manager rollout status deployment/cert-manager --timeout=120s
-          kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=120s
+          kubectl wait --for=condition=Available --timeout=120s -n cert-manager deployment/cert-manager
+          kubectl wait --for=condition=Available --timeout=120s -n cert-manager deployment/cert-manager-webhook
+          kubectl wait --for=condition=Available --timeout=120s -n cert-manager deployment/cert-manager-cainjector
+          # Allow cert-manager webhook to begin serving before helm runs
+          sleep 15
 
       # ── Build + load operator image ───────────────────────────────────────────
       - name: Build operator image
@@ -62,7 +65,7 @@ jobs:
             --set operator.image.pullPolicy=Never \
             --set webhook.sidecarImage=agentspec-sidecar:ci \
             --set webhook.enabled=true \
-            --wait --timeout=120s
+            --wait --timeout=180s
 
       # ── Deploy gymcoach demo agent ────────────────────────────────────────────
       - name: Create demo namespace
