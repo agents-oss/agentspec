@@ -37,7 +37,7 @@ jobs:
         run: docker build -t agentspec-operator:ci -f packages/operator/Dockerfile packages/operator
 
       - name: Load operator image into kind
-        run: kind load docker-image agentspec-operator:ci
+        run: kind load docker-image agentspec-operator:ci --name agentspec
 
       # ── Build + load sidecar image ────────────────────────────────────────────
       - name: Build sidecar image
@@ -45,10 +45,10 @@ jobs:
 
       - name: Load sidecar image into kind
         run: |
-          kind load docker-image agentspec-sidecar:ci
+          kind load docker-image agentspec-sidecar:ci --name agentspec
           # Also tag as agentspec/sidecar:local to match the demo deployment manifests
           docker tag agentspec-sidecar:ci agentspec/sidecar:local
-          kind load docker-image agentspec/sidecar:local
+          kind load docker-image agentspec/sidecar:local --name agentspec
 
       # ── Helm install operator ─────────────────────────────────────────────────
       - name: Helm install agentspec-operator
