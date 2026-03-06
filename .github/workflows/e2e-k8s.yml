@@ -64,8 +64,13 @@ jobs:
             --set operator.image.tag=ci \
             --set operator.image.pullPolicy=Never \
             --set webhook.sidecarImage=agentspec-sidecar:ci \
-            --set webhook.enabled=true \
-            --wait --timeout=180s
+            --set webhook.enabled=true
+
+      - name: Wait for webhook TLS certificate
+        run: kubectl wait --for=condition=Ready certificate/agentspec-webhook-tls -n agentspec-system --timeout=120s
+
+      - name: Wait for operator deployment
+        run: kubectl rollout status deployment/agentspec-operator -n agentspec-system --timeout=120s
 
       # ── Deploy gymcoach demo agent ────────────────────────────────────────────
       - name: Create demo namespace
@@ -88,10 +93,16 @@ jobs:
       - name: Collect debug info
         if: always()
         run: |
-          kubectl get agentobservations -A -o yaml > /tmp/agentobservations.yaml || true
-          kubectl get pods -A -o wide > /tmp/pods.txt || true
+          echo "=== Nodes ===" && kubectl get nodes -o wide || true
+          echo "=== All pods ===" && kubectl get pods -A -o wide > /tmp/pods.txt && cat /tmp/pods.txt || true
+          echo "=== Images loaded in kind ===" && docker exec agentspec-control-plane crictl images || true
+          echo "=== Operator pod describe ===" && kubectl describe pods -n agentspec-system -l app.kubernetes.io/name=agentspec-operator > /tmp/operator-describe.txt 2>/dev/null || true && cat /tmp/operator-describe.txt || true
+          echo "=== Operator logs ===" && kubectl logs -n agentspec-system -l app.kubernetes.io/name=agentspec-operator --tail=100 > /tmp/operator.log 2>/dev/null || true && cat /tmp/operator.log || true
+          echo "=== cert-manager events ===" && kubectl get events -n cert-manager --sort-by='.lastTimestamp' | tail -20 || true
+          echo "=== agentspec-system events ===" && kubectl get events -n agentspec-system --sort-by='.lastTimestamp' | tail -20 || true
+          echo "=== Certificates ===" && kubectl get certificates -A || true
+          kubectl get agentobservations -A -o yaml > /tmp/agentobservations.yaml 2>/dev/null || true
           kubectl logs -n demo deployment/gymcoach -c sidecar --tail=100 > /tmp/sidecar.log 2>/dev/null || true
-          kubectl logs -n agentspec-system deployment/agentspec-operator --tail=100 > /tmp/operator.log 2>/dev/null || true
 
       - name: Upload debug artifacts
         if: always()
@@ -103,4 +114,5 @@ jobs:
             /tmp/pods.txt
             /tmp/sidecar.log
             /tmp/operator.log
+            /tmp/operator-describe.txt
           retention-days: 3
