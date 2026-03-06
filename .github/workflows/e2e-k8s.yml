@@ -67,7 +67,7 @@ jobs:
             --set webhook.enabled=true
 
       - name: Wait for webhook TLS certificate
-        run: kubectl wait --for=condition=Ready certificate/agentspec-webhook-tls -n agentspec-system --timeout=120s
+        run: kubectl wait --for=condition=Ready certificate/agentspec-operator-webhook-cert -n agentspec-system --timeout=120s
 
       - name: Wait for operator deployment
         run: kubectl rollout status deployment/agentspec-operator -n agentspec-system --timeout=120s
