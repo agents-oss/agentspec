@@ -97,7 +97,8 @@ jobs:
           echo "=== All pods ===" && kubectl get pods -A -o wide > /tmp/pods.txt && cat /tmp/pods.txt || true
           echo "=== Images loaded in kind ===" && docker exec agentspec-control-plane crictl images || true
           echo "=== Operator pod describe ===" && kubectl describe pods -n agentspec-system -l app.kubernetes.io/name=agentspec-operator > /tmp/operator-describe.txt 2>/dev/null || true && cat /tmp/operator-describe.txt || true
-          echo "=== Operator logs ===" && kubectl logs -n agentspec-system -l app.kubernetes.io/name=agentspec-operator --tail=100 > /tmp/operator.log 2>/dev/null || true && cat /tmp/operator.log || true
+          echo "=== Operator logs (current) ===" && kubectl logs -n agentspec-system -l app.kubernetes.io/name=agentspec-operator --tail=100 > /tmp/operator.log 2>/dev/null || true && cat /tmp/operator.log || true
+          echo "=== Operator logs (previous crash) ===" && kubectl logs -n agentspec-system -l app.kubernetes.io/name=agentspec-operator --previous --tail=100 > /tmp/operator-prev.log 2>/dev/null || true && cat /tmp/operator-prev.log || true
           echo "=== cert-manager events ===" && kubectl get events -n cert-manager --sort-by='.lastTimestamp' | tail -20 || true
           echo "=== agentspec-system events ===" && kubectl get events -n agentspec-system --sort-by='.lastTimestamp' | tail -20 || true
           echo "=== Certificates ===" && kubectl get certificates -A || true
@@ -115,4 +116,5 @@ jobs:
             /tmp/sidecar.log
             /tmp/operator.log
             /tmp/operator-describe.txt
+            /tmp/operator-prev.log
           retention-days: 3
