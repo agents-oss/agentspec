@@ -77,7 +77,7 @@ jobs:
         run: kubectl create namespace demo --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy gymcoach
-        run: kubectl apply -f packages/operator/demo/gymcoach/
+        run: kubectl apply -k packages/operator/demo/gymcoach/
 
       - name: Wait for gymcoach rollout
         run: kubectl rollout status deployment/gymcoach --namespace demo --timeout=90s
