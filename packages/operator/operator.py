@@ -275,10 +275,12 @@ async def _run_probe(
 
 # ── Kopf operator settings ────────────────────────────────────────────────────
 
+_webhook_started = False  # guard against kopf firing startup() more than once
+
 @kopf.on.startup()
 async def startup(settings: kopf.OperatorSettings, **kwargs):
     """Configure Kopf operator global settings and launch background tasks."""
-    global _remote_watcher, _k8s_custom_api
+    global _remote_watcher, _k8s_custom_api, _webhook_started
 
     # Reduce noise: only log warnings from internal kopf machinery
     settings.posting.level = logging.WARNING
@@ -299,7 +301,10 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
 
     # Phase 2: start the MutatingWebhook server as a background asyncio task.
     # Enabled only when WEBHOOK_ENABLED=true (set by Helm when webhook.enabled=true).
-    if os.getenv("WEBHOOK_ENABLED", "false").lower() == "true":
+    # Guard with _webhook_started: kopf may fire startup() more than once during
+    # the authentication cycle, which would bind port 9443 twice and crash.
+    if os.getenv("WEBHOOK_ENABLED", "false").lower() == "true" and not _webhook_started:
+        _webhook_started = True
         from webhook import start_webhook_server
         try:
             from kubernetes_asyncio import client as k8s_client, config as k8s_config
