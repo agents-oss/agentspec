@@ -1,4 +1,6 @@
-# AgentSpec
+<p align="center">
+  <img src="logo/agentspec_full.png" alt="AgentSpec" width="400" />
+</p>
 
 [![npm](https://img.shields.io/npm/v/@agentspec/sdk)](https://www.npmjs.com/package/@agentspec/sdk)
 [![CI](https://github.com/agents-oss/agentspec/actions/workflows/ci.yml/badge.svg)](https://github.com/agents-oss/agentspec/actions/workflows/ci.yml)
