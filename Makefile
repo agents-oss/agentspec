@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: help install build test lint typecheck clean schema docs docs-build docs-preview
-.PHONY: demo demo-provision demo-cluster demo-operator demo-deploy demo-verify demo-e2e demo-status demo-logs demo-down demo-patch demo-reset demo-opa
+.PHONY: demo demo-provision demo-cluster demo-operator demo-deploy demo-verify demo-e2e demo-status demo-logs demo-down demo-patch demo-reset demo-opa operator-e2e
 
 # ── Demo cluster config ────────────────────────────────────────────────────────
 DEMO_CLUSTER   := agentspec
@@ -218,6 +218,12 @@ demo-verify:
 	  --namespace $(DEMO_OP_NS) \
 	  --demo-namespace $(DEMO_AGENT_NS) \
 	  --context $(KUBE_CONTEXT)
+
+## Run operator E2E tests against the live cluster (requires deployed gymcoach)
+operator-e2e:
+	cd packages/operator && \
+	  uv run --with-requirements requirements-dev.txt \
+	  pytest test/e2e/ -v --timeout=60
 
 ## Run automated e2e scenarios against the live demo cluster
 demo-e2e:

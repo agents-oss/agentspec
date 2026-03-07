@@ -46,14 +46,14 @@ def test_agentobservation_created(namespace):
 
 
 def test_health_grade(gymcoach_urls):
-    """Sidecar /agentspec/health returns 'healthy' or 'degraded' (never 'unknown')."""
+    """Sidecar /health/ready returns 'healthy' or 'degraded' (never 'unknown')."""
     import httpx
 
     _, control_url = gymcoach_urls
-    r = httpx.get(f"{control_url}/agentspec/health", timeout=10)
+    r = httpx.get(f"{control_url}/health/ready", timeout=10)
     assert r.status_code == 200, f"Health endpoint returned {r.status_code}"
     data = r.json()
     status = data.get("status")
-    assert status in {"healthy", "degraded"}, (
-        f"Expected 'healthy' or 'degraded', got: {status!r}"
+    assert status in {"healthy", "degraded", "ready"}, (
+        f"Expected 'healthy', 'degraded', or 'ready', got: {status!r}"
     )

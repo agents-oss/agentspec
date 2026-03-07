@@ -18,6 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: astral-sh/setup-uv@v5
+
       - uses: docker/setup-buildx-action@v3
 
       # ── Create kind cluster ───────────────────────────────────────────────────
@@ -83,11 +85,8 @@ jobs:
         run: kubectl rollout status deployment/gymcoach --namespace demo --timeout=90s
 
       # ── Run E2E tests ─────────────────────────────────────────────────────────
-      - name: Install test dependencies
-        run: pip install pytest httpx
-
       - name: Run operator E2E tests
-        run: pytest packages/operator/test/e2e/ -v --timeout=60
+        run: make operator-e2e
 
       # ── Debug artifacts on failure ────────────────────────────────────────────
       - name: Collect debug info
