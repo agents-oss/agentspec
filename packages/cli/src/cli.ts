@@ -1,4 +1,7 @@
 import { Command } from 'commander'
+import { readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
 import { registerValidateCommand } from './commands/validate.js'
 import { registerHealthCommand } from './commands/health.js'
 import { registerAuditCommand } from './commands/audit.js'
@@ -12,12 +15,15 @@ import { registerGeneratePolicyCommand } from './commands/generate-policy.js'
 import { registerEvaluateCommand } from './commands/evaluate.js'
 import { registerProbeCommand } from './commands/probe.js'
 
+const _dir = dirname(fileURLToPath(import.meta.url))
+const { version } = JSON.parse(readFileSync(join(_dir, '../package.json'), 'utf8')) as { version: string }
+
 const program = new Command()
 
 program
   .name('agentspec')
   .description('Universal Agent Manifest System — validate, health-check, audit, and generate agents')
-  .version('0.1.0')
+  .version(version)
 
 registerValidateCommand(program)
 registerHealthCommand(program)

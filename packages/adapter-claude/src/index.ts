@@ -55,6 +55,41 @@ function loadSkill(framework: string): string {
   return guidelines + readFileSync(join(skillsDir, `${framework}.md`), 'utf-8')
 }
 
+/**
+ * Guard ANTHROPIC_API_KEY and return a configured Anthropic client.
+ * Throws with a remediation message if the key is missing.
+ */
+function initClaudeClient(): Anthropic {
+  const apiKey = process.env['ANTHROPIC_API_KEY']
+  if (!apiKey) {
+    throw new Error(
+      'ANTHROPIC_API_KEY is not set. AgentSpec generates code using Claude.\n' +
+        'Get a key at https://console.anthropic.com and add it to your environment.',
+    )
+  }
+  const baseURL = process.env['ANTHROPIC_BASE_URL']
+  return new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
+}
+
+/** System prompt used exclusively by repairYaml — knows AgentSpec v1 schema rules. */
+const REPAIR_SYSTEM_PROMPT =
+  `You are an AgentSpec v1 YAML schema fixer.\n` +
+  `Fix the agent.yaml provided by the user so it complies with the AgentSpec v1 schema.\n` +
+  `Return ONLY a JSON object with this exact shape (no other text):\n` +
+  `{"files":{"agent.yaml":"<corrected YAML>"},"installCommands":[],"envVars":[]}\n\n` +
+  `## AgentSpec v1 schema rules (enforce all of these):\n` +
+  `- Top-level keys: apiVersion: "agentspec.io/v1", kind: "AgentSpec"\n` +
+  `- metadata: name (slug a-z0-9-), version (semver), description\n` +
+  `- spec.model: provider, id (never "name"), apiKey: "$env:VAR"\n` +
+  `- spec.model.fallback: provider, id, apiKey, triggerOn (array of strings)\n` +
+  `- spec.tools[]: name (slug), type: "function", description\n` +
+  `- spec.memory.shortTerm.backend: "redis" | "in-memory" | "sqlite"\n` +
+  `- spec.memory.longTerm.backend: "postgres" | "sqlite" | "mongodb"\n` +
+  `- spec.guardrails.input: array of guardrail objects (not a scalar)\n` +
+  `- spec.guardrails.output: array of guardrail objects (not a scalar)\n` +
+  `- spec.requires.envVars: array of strings (key is "envVars", not "env")\n` +
+  `- spec.requires.services[]: {type, connection: "$env:VAR"}`
+
 export interface GenerationProgress {
   /** Cumulative output characters received so far during streaming. */
   outputChars: number
@@ -91,18 +126,9 @@ export async function generateWithClaude(
   manifest: AgentSpecManifest,
   options: ClaudeAdapterOptions,
 ): Promise<GeneratedAgent> {
-  const apiKey = process.env['ANTHROPIC_API_KEY']
-  if (!apiKey) {
-    throw new Error(
-      'ANTHROPIC_API_KEY is not set. AgentSpec generates code using Claude.\n' +
-        'Get a key at https://console.anthropic.com and add it to your environment.',
-    )
-  }
-
+  const client = initClaudeClient()
   const skillMd = loadSkill(options.framework)
 
-  const baseURL = process.env['ANTHROPIC_BASE_URL']
-  const client = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
   const context = buildContext({
     manifest,
     contextFiles: options.contextFiles,
@@ -139,6 +165,55 @@ export async function generateWithClaude(
   }
 
   return extractGeneratedAgent(text, options.framework)
+}
+
+// ── YAML repair ──────────────────────────────────────────────────────────────
+
+export interface RepairOptions {
+  /** Claude model ID. Defaults to claude-opus-4-6. */
+  model?: string
+}
+
+/**
+ * Ask Claude to fix an agent.yaml string that failed schema validation.
+ *
+ * Reuses the scan skill as the system prompt (it carries full schema knowledge).
+ * Returns the repaired YAML string, ready to be re-validated by the caller.
+ *
+ * Throws if ANTHROPIC_API_KEY is not set or Claude does not return a parseable response.
+ */
+export async function repairYaml(
+  yamlStr: string,
+  validationErrors: string,
+  options: RepairOptions = {},
+): Promise<string> {
+  const client = initClaudeClient()
+  const model = options.model ?? process.env['ANTHROPIC_MODEL'] ?? 'claude-opus-4-6'
+
+  const userMessage =
+    `The following agent.yaml failed AgentSpec v1 schema validation.\n` +
+    `Fix ALL the errors listed below and return the corrected file in the same JSON format.\n\n` +
+    `## Current (invalid) YAML:\n\`\`\`yaml\n${yamlStr}\n\`\`\`\n\n` +
+    `## Validation errors:\n\`\`\`\n${validationErrors}\n\`\`\`\n\n` +
+    `Return ONLY a JSON object (no other text):\n` +
+    `\`\`\`json\n{"files":{"agent.yaml":"<corrected YAML>"},"installCommands":[],"envVars":[]}\n\`\`\``
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 16384,
+    system: REPAIR_SYSTEM_PROMPT,
+    messages: [{ role: 'user' as const, content: userMessage }],
+  })
+
+  const text = response.content
+    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+    .map(block => block.text)
+    .join('')
+
+  const result = extractGeneratedAgent(text, 'scan')
+  const fixed = result.files['agent.yaml']
+  if (!fixed) throw new Error('Claude did not return agent.yaml in repair response.')
+  return fixed
 }
 
 // ── Response parsing ──────────────────────────────────────────────────────────

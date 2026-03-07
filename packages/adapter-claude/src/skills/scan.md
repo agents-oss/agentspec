@@ -1,10 +1,9 @@
 # AgentSpec Scan Skill
 
-You are analysing source code to produce a valid `agent.yaml` manifest.
+You are analysing source code to detect what kind of AI agent it implements.
 
-The caller will provide one or more source files embedded in the context.
-Your job is to extract everything the agent declares and express it as
-a complete `agent.yaml` that conforms to the AgentSpec v1 schema.
+Your **only job** is to return a `detection.json` file containing raw facts you find in the source.
+**Do NOT generate YAML.** TypeScript will convert your detection to a valid manifest.
 
 ---
 
@@ -15,181 +14,169 @@ Respond with **exactly one JSON object** in this shape:
 ```json
 {
   "files": {
-    "agent.yaml": "<full YAML content as a string>"
+    "detection.json": "<ScanDetection object as a JSON string>"
   },
   "installCommands": [],
   "envVars": ["OPENAI_API_KEY", "..."]
 }
 ```
 
-- The `agent.yaml` value must be a valid YAML string (escape `\n` as literal newlines inside the JSON string value).
-- Do NOT include any text outside the JSON object.
-- Do NOT truncate the YAML.
+The `detection.json` value must be a **valid JSON string** encoding a `ScanDetection` object (see interface below).
+Do NOT include any text outside the JSON object. Do NOT generate YAML.
+
+---
+
+## ScanDetection Interface
+
+Return raw values only — do NOT slugify or normalise. The builder handles that.
+
+```typescript
+interface ScanDetection {
+  name: string                    // agent name (raw — can have underscores, spaces)
+  description: string
+  version?: string                // semver if found, omit otherwise
+  tags?: string[]
+  modelProvider: string           // "openai" | "anthropic" | "groq" | "google" | "mistral" | "azure" | "bedrock"
+  modelId: string                 // exact model ID found in source
+  modelApiKeyEnv: string          // env var name for the API key (e.g. "OPENAI_API_KEY")
+  modelTemperature?: number
+  modelMaxTokens?: number
+  fallbackProvider?: string
+  fallbackModelId?: string
+  fallbackApiKeyEnv?: string
+  promptFile?: string             // path if a prompt file is loaded (e.g. "app/prompts/system.txt")
+  tools?: Array<{
+    name: string                  // raw tool/function name
+    description: string
+    module?: string               // file path relative to scanned dir, e.g. "app/tools/expense.py" — NO $file: prefix
+    function?: string             // callable name in that module, e.g. "create_expense"
+    readOnly?: boolean
+    destructive?: boolean
+    idempotent?: boolean
+  }>
+  shortTermBackend?: "redis" | "in-memory" | "sqlite"
+  shortTermConnectionEnv?: string  // env var for redis/sqlite connection
+  shortTermMaxTurns?: number
+  shortTermTtlSeconds?: number
+  longTermBackend?: "postgres" | "sqlite" | "mongodb"
+  longTermConnectionStringEnv?: string
+  hasPromptInjection?: boolean
+  hasTopicFilter?: boolean
+  blockedTopics?: string[]
+  hasToxicityFilter?: boolean
+  toxicityThreshold?: number
+  hasPiiDetector?: boolean
+  hasRestApi?: boolean
+  apiStreaming?: boolean
+  apiAuthType?: "jwt" | "apikey" | "oauth2" | "none"
+  apiPort?: number
+  tracingBackend?: "langfuse" | "langsmith" | "agentops" | "otel" | "honeycomb" | "datadog"
+  metricsBackend?: "opentelemetry" | "prometheus" | "datadog"
+  loggingStructured?: boolean
+  envVars: string[]               // ALL env vars detected in source (REQUIRED, can be empty [])
+  services?: Array<{
+    type: "postgres" | "redis" | "mysql" | "mongodb" | "elasticsearch"
+    connectionEnv: string         // env var name for the connection string
+  }>
+}
+```
+
+**ONLY include fields you can confidently detect.** Omit unknown fields entirely.
 
 ---
 
 ## Detection Rules
 
-Work through the source files and detect:
+### Model detection
 
-### 1. Model
+| Pattern | `modelProvider` | `modelId` default |
+|---------|-----------------|-------------------|
+| `from langchain_openai import` / `import openai` | `openai` | `gpt-4o-mini` |
+| `from langchain_anthropic import` / `import anthropic` | `anthropic` | `claude-sonnet-4-6` |
+| `from langchain_groq import` / `ChatGroq` | `groq` | `llama-3.3-70b-versatile` |
+| `from langchain_google_genai import` | `google` | `gemini-2.0-flash` |
+| `from langchain_mistralai import` | `mistral` | `mistral-large-latest` |
+| `AzureChatOpenAI` / `azure` in env vars | `azure` | `gpt-4o` |
+| Literal `model="…"` or `model_name="…"` | — | use the literal value |
 
-| Pattern | Meaning |
-|---------|---------|
-| `import openai` / `from openai import` | provider: openai |
-| `import anthropic` / `from anthropic import` | provider: anthropic |
-| `from langchain_openai import` | provider: openai |
-| `from langchain_anthropic import` | provider: anthropic |
-| `from langchain_groq import` | provider: groq |
-| `OpenAI(model="…")` | model.name |
-| `ChatOpenAI(model_name="…")` | model.name |
-| `Anthropic(model="…")` | model.name |
-| `os.getenv("OPENAI_API_KEY")` | model.apiKey: $env:OPENAI_API_KEY |
-| `os.getenv("ANTHROPIC_API_KEY")` | model.apiKey: $env:ANTHROPIC_API_KEY |
-| `process.env.OPENAI_API_KEY` | model.apiKey: $env:OPENAI_API_KEY |
+Always prefer the detected model ID literal over the default.
 
-### 2. Tools
+Use the env var name that the code passes to the API client constructor for `modelApiKeyEnv`.
 
-| Pattern | Meaning |
-|---------|---------|
-| `@tool` decorator on a function | add to spec.tools[] |
-| `Tool(name="…", func=…)` | add to spec.tools[] |
-| `StructuredTool.from_function(name="…")` | add to spec.tools[] |
-| `tools = [ToolClass()]` or similar | add each detected tool |
+### Tool detection
 
-For each tool, extract:
-- `name`: the function or tool name (snake_case)
-- `description`: the docstring or `description=` argument
+Detect from:
+- `@tool` decorator on a function
+- `StructuredTool.from_function(name="…")`
+- `Tool(name="…", func=…)`
+- `tools = [ToolClass()]` patterns
 
-### 3. MCP Servers
+For each tool, return:
+- `name`: raw function/tool name (do NOT convert underscores)
+- `description`: docstring or description string
+- `module`: file path where the tool is defined, **relative to the scanned directory root** (e.g. `app/tools/expense_tools.py`). Do NOT include `$file:` prefix — the builder adds it.
+- `function`: the callable Python/JS function name in that module (e.g. `create_expense`)
 
-| Pattern | Meaning |
-|---------|---------|
-| `MCPClient(…)` | add to spec.mcp[] |
-| `mcp_servers = [{"url": "…"}]` | add each to spec.mcp[] |
+Hints:
+- A tool decorated with `@tool` and only uses `SELECT`/`GET` → `readOnly: true`
+- A tool that deletes/updates data → `destructive: true`
 
-### 4. Guardrails
+### Memory backend detection
 
-| Pattern | Meaning |
-|---------|---------|
-| Content filter / moderation call | spec.guardrails.content_filter.enabled: true |
-| Rate limiter class or decorator | spec.guardrails.rate_limit.enabled: true |
-| Output validator / schema check | spec.guardrails.output_validator.enabled: true |
-| PII scrubbing library import | spec.guardrails.pii_scrubber.enabled: true |
+| Pattern | Field | `backend` value |
+|---------|-------|-----------------|
+| Redis / Upstash REST URL / `aioredis` / `redis-py` | `shortTermBackend` | `redis` |
+| `MemorySaver` (LangGraph in-memory) | `shortTermBackend` | `in-memory` |
+| SQLite checkpointer | `shortTermBackend` | `sqlite` |
+| PostgreSQL / asyncpg / SQLAlchemy + postgres | `longTermBackend` | `postgres` |
+| MongoDB / motor | `longTermBackend` | `mongodb` |
 
-### 5. Evaluation Hooks
+For redis/sqlite, also detect `shortTermConnectionEnv` (the env var used to connect).
+For postgres/mongodb, detect `longTermConnectionStringEnv`.
 
-| Pattern | Meaning |
-|---------|---------|
-| `import deepeval` | spec.eval.hooks: [deepeval] |
-| `import pytest` + eval functions | spec.eval.hooks: [pytest] |
-| Custom eval class | spec.eval.hooks: [custom] |
+### Guardrail detection
 
-### 6. Required Environment Variables
+- Prompt injection detection library / check → `hasPromptInjection: true`
+- Topic blocking / content filter on input → `hasTopicFilter: true`, list `blockedTopics`
+- PII scrubbing / Presidio / anonymisation → `hasPiiDetector: true`
+- Toxicity filter / moderation on output → `hasToxicityFilter: true`, include `toxicityThreshold` if found
+- Hallucination detection on output → (omit, not in interface)
 
-Scan for all:
-- `os.getenv("VAR_NAME")` / `os.environ["VAR_NAME"]`
-- `process.env.VAR_NAME`
-- `$env:VAR_NAME`
+### API detection
 
-Collect unique names and list them in `spec.requires.env[]` AND in `envVars` in your JSON response.
+- FastAPI / Flask / Express app with chat endpoint → `hasRestApi: true`
+- SSE streaming / `StreamingResponse` → `apiStreaming: true`
+- JWT / OAuth2 / API key middleware → `apiAuthType`
+- Port from `uvicorn.run(..., port=N)` or `app.listen(N)` → `apiPort`
 
-### 7. Memory Backend
+### Env var detection
 
-| Pattern | Meaning |
-|---------|---------|
-| Redis import + connection | spec.memory.backend: redis |
-| pgvector / psycopg import | spec.memory.backend: postgres |
-| Pinecone / Weaviate / Qdrant | spec.memory.backend: vector-<name> |
-| SQLite | spec.memory.backend: sqlite |
+Scan for:
+- Python: `os.getenv("VAR")`, `os.environ["VAR"]`, `os.environ.get("VAR")`
+- TypeScript/JS: `process.env.VAR`, `process.env["VAR"]`
+- Frameworks: `settings.VAR`, `config.VAR`
 
-### 8. Services (Databases, APIs)
+Collect ALL unique env var names → `envVars` array (REQUIRED, even if empty `[]`).
 
-| Pattern | Meaning |
-|---------|---------|
-| DB connection string env var | spec.requires.services[].name: database |
-| External API base URL pattern | spec.requires.services[].name: <api-name> |
+### Services detection
 
-### 9. Compliance Estimate
+| Pattern | `type` |
+|---------|--------|
+| PostgreSQL / asyncpg / SQLAlchemy | `postgres` |
+| Redis / aioredis / Upstash | `redis` |
+| MySQL | `mysql` |
+| MongoDB / motor | `mongodb` |
+| Elasticsearch | `elasticsearch` |
 
-Count detected fields and estimate a compliance score (0–100):
-
-| Detected | Score contribution |
-|----------|-------------------|
-| model.provider + apiKey | +20 |
-| tools (at least 1) | +10 |
-| guardrails.content_filter | +15 |
-| guardrails.rate_limit | +10 |
-| eval.hooks (at least 1) | +15 |
-| memory backend | +10 |
-| requires.env (at least 1) | +5 |
-| observability.metrics | +10 |
-| observability.tracing | +5 |
-
-Include the estimate as a comment at the top of the generated YAML:
-`# Compliance estimate: <score>/100`
-
----
-
-## Output Schema
-
-Generate a `agent.yaml` with this structure (include only sections that have detected values):
-
-```yaml
-# Compliance estimate: <N>/100
-# Generated by agentspec scan — review and adjust before committing
-
-agentspec: v1
-
-metadata:
-  name: <detected-or-inferred-agent-name>
-  description: <one-line description inferred from the code>
-  version: 0.1.0
-
-spec:
-  model:
-    provider: <openai|anthropic|groq|...>
-    name: <model-id>
-    apiKey: $env:<API_KEY_VAR>
-
-  tools:
-    - name: <tool_name>
-      description: <tool description>
-
-  # (only if MCP detected)
-  mcp:
-    - name: <mcp-server-name>
-      url: $env:<MCP_URL_VAR>
-
-  # (only if guardrails detected)
-  guardrails:
-    content_filter:
-      enabled: true
-    rate_limit:
-      enabled: true
-
-  # (only if memory detected)
-  memory:
-    backend: <redis|postgres|...>
-    url: $env:<MEMORY_URL_VAR>
-
-  # (only if eval detected)
-  eval:
-    hooks:
-      - <deepeval|pytest|...>
-
-  requires:
-    env:
-      - <VAR_NAME>
-```
+For each detected service, find the env var that holds the connection string → `connectionEnv`.
 
 ---
 
 ## Important Rules
 
-1. If a value cannot be detected, omit the field (never guess API keys or URLs).
-2. All secrets and API keys MUST use `$env:VAR_NAME` syntax — never hardcode values.
-3. The agent name should be snake_case, inferred from the file or class name.
-4. If no source files are provided, generate a minimal valid manifest with a comment
-   explaining that no source was available.
-5. Always include at least `agentspec: v1`, `metadata.name`, and `spec.model` in the output.
+1. **Return `detection.json` — NEVER `agent.yaml`** — YAML generation is TypeScript's job.
+2. **Return raw names** — do NOT convert underscores to hyphens; the builder slugifies.
+3. **`envVars` is required** — always include it, even as `[]` if no env vars found.
+4. **Omit unknown fields** — do not guess values you cannot find in the source.
+5. **Use exact enum values** — `modelProvider` must be one of the listed strings.
+6. **Do not invent services** — only list services that are actually imported/used.

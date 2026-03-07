@@ -15,7 +15,7 @@ export interface BuildContextOptions {
  */
 function extractFileRefs(manifest: AgentSpecManifest, baseDir: string): string[] {
   const refs: string[] = []
-  for (const tool of manifest.spec.tools ?? []) {
+  for (const tool of manifest.spec?.tools ?? []) {
     const mod = (tool as Record<string, unknown>).module as string | undefined
     if (typeof mod === 'string' && mod.startsWith('$file:')) {
       refs.push(join(baseDir, mod.slice(6)))
