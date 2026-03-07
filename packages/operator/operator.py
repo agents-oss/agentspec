@@ -36,6 +36,7 @@ from status import build_status_patch
 logger = logging.getLogger("agentspec.operator")
 
 _remote_watcher: RemoteAgentWatcher | None = None
+_k8s_api_client = None
 _k8s_custom_api: CustomObjectsApi | None = None
 
 # RFC-1123 DNS label: lowercase alphanumeric, hyphens allowed in the middle.
@@ -275,12 +276,10 @@ async def _run_probe(
 
 # ── Kopf operator settings ────────────────────────────────────────────────────
 
-_webhook_started = False  # guard against kopf firing startup() more than once
-
 @kopf.on.startup()
 async def startup(settings: kopf.OperatorSettings, **kwargs):
     """Configure Kopf operator global settings and launch background tasks."""
-    global _remote_watcher, _k8s_custom_api, _webhook_started
+    global _remote_watcher, _k8s_api_client, _k8s_custom_api
 
     # Reduce noise: only log warnings from internal kopf machinery
     settings.posting.level = logging.WARNING
@@ -294,31 +293,26 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
     # NOTE: load_incluster_config() is synchronous in kubernetes_asyncio; do not await it.
     try:
         _k8s_config.load_incluster_config()
-        _k8s_custom_api = CustomObjectsApi(_k8s_client.ApiClient())
+        _k8s_api_client = _k8s_client.ApiClient()
+        _k8s_custom_api = CustomObjectsApi(_k8s_api_client)
         logger.info("kubernetes_asyncio client initialised (in-cluster)")
     except Exception as exc:
         logger.warning("Could not load in-cluster k8s config (%s) — direct status patches disabled", exc)
 
-    # Phase 2: start the MutatingWebhook server as a background asyncio task.
-    # Enabled only when WEBHOOK_ENABLED=true (set by Helm when webhook.enabled=true).
-    # Guard with _webhook_started: kopf may fire startup() more than once during
-    # the authentication cycle, which would bind port 9443 twice and crash.
-    if os.getenv("WEBHOOK_ENABLED", "false").lower() == "true" and not _webhook_started:
-        _webhook_started = True
-        from webhook import start_webhook_server
-        try:
-            from kubernetes_asyncio import client as k8s_client, config as k8s_config
-            await k8s_config.load_incluster_config()
-            api_client = k8s_client.ApiClient()
-        except Exception:
-            # Outside cluster (dev/CI): webhook runs without k8s CR creation
-            api_client = None
-            logger.warning(
-                "[webhook] could not load in-cluster config — "
-                "AgentObservation CRs will NOT be auto-created"
+    # Webhook: use kopf's native admission server (kopf 1.37+) instead of a
+    # separate uvicorn process. Configured when WEBHOOK_ENABLED=true (set by Helm).
+    if os.getenv("WEBHOOK_ENABLED", "false").lower() == "true":
+        insecure = os.getenv("WEBHOOK_INSECURE_MODE", "false").lower() == "true"
+        if insecure:
+            settings.admission.server = kopf.WebhookServer(port=9443, host="0.0.0.0")
+        else:
+            settings.admission.server = kopf.WebhookServer(
+                port=9443,
+                host="0.0.0.0",
+                certfile=os.getenv("WEBHOOK_TLS_CERT_FILE", "/tls/tls.crt"),
+                pkeyfile=os.getenv("WEBHOOK_TLS_KEY_FILE", "/tls/tls.key"),
             )
-        asyncio.ensure_future(start_webhook_server(api_client=api_client))
-        logger.info("[webhook] server task scheduled")
+        logger.info("[webhook] kopf native admission server configured on :9443")
 
     # Phase 6: start RemoteAgentWatcher when control plane is configured.
     # Enabled via CONTROL_PLANE_URL + CONTROL_PLANE_KEY env vars
@@ -350,9 +344,98 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
         )
 
 
+def _apply_patch_ops(kopf_patch, spec: dict, ops: list[dict]) -> None:
+    """
+    Translate JSON Patch `add` ops from build_sidecar_patch() into dict
+    assignments on kopf's Patch object.
+
+    kopf converts Patch dict mutations to JSON Patch via as_json_patch(), which
+    uses `replace` for existing paths and `add` for new paths. Assigning the
+    full merged list achieves the same result as appending with `/containers/-`.
+    """
+    containers = list(spec.get("containers") or [])
+    volumes = list(spec.get("volumes") or [])
+    for op in ops:
+        path = op["path"]
+        if path == "/spec/containers/-":
+            containers.append(op["value"])
+        elif path == "/spec/volumes":
+            volumes = [op["value"]]  # first volume: creates the array
+        elif path == "/spec/volumes/-":
+            volumes.append(op["value"])
+    spec_patch = kopf_patch.setdefault("spec", {})
+    spec_patch["containers"] = containers
+    if volumes:
+        spec_patch["volumes"] = volumes
+
+
+@kopf.on.mutate("", "v1", "Pod", operations={"CREATE"})
+async def inject_sidecar(body, spec, name, namespace, patch, logger, **kwargs):
+    """
+    Kopf native mutating admission handler — replaces the custom uvicorn/Starlette server.
+
+    Intercepts Pod CREATE requests from the kube-apiserver and injects the
+    agentspec-sidecar container when the pod meets injection criteria.
+
+    Mutations are applied via the `patch` (kopf Patch object); no return value needed.
+    """
+    from webhook import (
+        should_inject, is_sidecar_present, build_sidecar_patch,
+        get_cr_name, _create_agent_observation,
+        _INJECT_MODE, _EXCLUDED_NAMESPACES,
+        _OPA_ENABLED, _OPA_IMAGE, _OPA_PROXY_MODE, _OPA_POLICY_CONFIGMAP_SUFFIX,
+        _OPA_PROXY_MODE_KEY,
+    )
+
+    annotations = (body.get("metadata") or {}).get("annotations") or {}
+
+    if namespace in _EXCLUDED_NAMESPACES:
+        return
+
+    if not should_inject(annotations, _INJECT_MODE):
+        return
+
+    if is_sidecar_present(spec):
+        return
+
+    opa_proxy_mode = annotations.get(_OPA_PROXY_MODE_KEY) or _OPA_PROXY_MODE
+
+    patch_ops = build_sidecar_patch(
+        spec, annotations, _INJECT_MODE,
+        _OPA_ENABLED, _OPA_IMAGE, opa_proxy_mode, _OPA_POLICY_CONFIGMAP_SUFFIX,
+    )
+
+    if not patch_ops:
+        return
+
+    _apply_patch_ops(patch, spec, patch_ops)
+
+    if _k8s_api_client is not None:
+        # For generateName pods, `name` is empty at admission time — fall back to generateName.
+        pod_name = name or (body.get("metadata") or {}).get("generateName", "unknown")
+        cr_name = get_cr_name(annotations, pod_name)
+        try:
+            check_interval = int(annotations.get("agentspec.io/check-interval", 30))
+        except (ValueError, TypeError):
+            check_interval = 30
+        check_interval = max(5, min(check_interval, 3600))
+        uid = (body.get("metadata") or {}).get("uid", "")
+        task = asyncio.create_task(
+            _create_agent_observation(cr_name, namespace, uid, pod_name, check_interval, _k8s_api_client)
+        )
+        task.add_done_callback(
+            lambda t: logger.error("[webhook] CR creation task failed: %s", t.exception())
+            if not t.cancelled() and t.exception() is not None
+            else None
+        )
+
+
 @kopf.on.cleanup()
 async def cleanup(**kwargs):
     """Stop background tasks on operator shutdown."""
     if _remote_watcher is not None:
         await _remote_watcher.stop()
         logger.info("RemoteAgentWatcher stopped")
+    if _k8s_api_client is not None:
+        await _k8s_api_client.close()
+        logger.info("kubernetes_asyncio ApiClient closed")

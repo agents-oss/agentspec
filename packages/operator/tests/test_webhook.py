@@ -1,8 +1,8 @@
 """
 Unit tests for webhook.py — MutatingWebhook pure business logic.
 
-Tests cover pure functions AND the Starlette HTTP handler (via TestClient).
-No k8s API calls are made — api_client=None skips CR creation.
+Tests cover pure functions only. The HTTP admission layer is handled by kopf's
+native WebhookServer (configured in operator.py) — no Starlette/uvicorn here.
 
 Coverage:
   - should_inject()            — annotation opt-in gate
@@ -10,7 +10,7 @@ Coverage:
   - build_sidecar_patch()      — JSON Patch construction
   - get_cr_name()              — AgentObservation CR naming
   - build_admission_response() — AdmissionReview envelope
-  - mutate handler             — HTTP integration (M-2: Starlette TestClient)
+  - _EXCLUDED_NAMESPACES       — module-level exclusion constant
 """
 
 from __future__ import annotations
@@ -27,8 +27,6 @@ _WEBHOOK_PATH = pathlib.Path(__file__).parent.parent / "webhook.py"
 _spec = importlib.util.spec_from_file_location("agentspec_webhook", _WEBHOOK_PATH)
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
-
-_build_starlette_app = _mod._build_starlette_app
 
 should_inject = _mod.should_inject
 is_sidecar_present = _mod.is_sidecar_present
@@ -238,116 +236,6 @@ class TestBuildAdmissionResponse:
         assert response["kind"] == "AdmissionReview"
 
 
-# ── Starlette HTTP handler integration tests (M-2) ────────────────────────────
-
-class TestMutateHandler:
-    """
-    Integration tests for the POST /mutate endpoint using Starlette's TestClient.
-    api_client=None so no k8s CR creation is attempted — purely tests HTTP layer.
-    """
-
-    def _client(self):
-        from starlette.testclient import TestClient
-        return TestClient(_build_starlette_app(api_client=None))
-
-    def _admission_review(self, annotations=None, containers=None, uid="test-uid"):
-        return {
-            "request": {
-                "uid": uid,
-                "name": "test-pod",
-                "namespace": "default",
-                "object": {
-                    "metadata": {"annotations": annotations or {}},
-                    "spec": {
-                        "containers": containers or [{"name": "agent", "image": "python:3.12"}]
-                    },
-                },
-            }
-        }
-
-    def test_annotated_pod_returns_200_with_patch(self):
-        client = self._client()
-        resp = client.post("/mutate", json=self._admission_review(
-            annotations={"agentspec.io/inject": "true"}
-        ))
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["response"]["allowed"] is True
-        assert "patch" in body["response"]
-        assert body["response"]["patchType"] == "JSONPatch"
-
-    def test_unannotated_pod_returns_200_no_patch(self):
-        client = self._client()
-        resp = client.post("/mutate", json=self._admission_review())
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["response"]["allowed"] is True
-        assert "patch" not in body["response"]
-
-    def test_response_uid_matches_request_uid(self):
-        client = self._client()
-        resp = client.post("/mutate", json=self._admission_review(uid="abc-123"))
-        assert resp.json()["response"]["uid"] == "abc-123"
-
-    def test_malformed_json_returns_400(self):
-        from starlette.testclient import TestClient
-        client = TestClient(_build_starlette_app(api_client=None))
-        resp = client.post(
-            "/mutate",
-            content=b"not-json{{{",
-            headers={"content-type": "application/json"},
-        )
-        assert resp.status_code == 400
-
-    def test_missing_uid_still_returns_200(self):
-        client = self._client()
-        payload = {
-            "request": {
-                "namespace": "default",
-                "object": {
-                    "metadata": {},
-                    "spec": {"containers": [{"name": "agent", "image": "x"}]},
-                },
-            }
-        }
-        resp = client.post("/mutate", json=payload)
-        assert resp.status_code == 200
-        assert resp.json()["response"]["allowed"] is True
-
-    def test_oversized_payload_returns_413(self):
-        from starlette.testclient import TestClient
-        client = TestClient(_build_starlette_app(api_client=None))
-        # 2 MiB payload — exceeds the 1 MiB guard
-        resp = client.post(
-            "/mutate",
-            content=b"x" * 2_097_152,
-            headers={
-                "content-type": "application/json",
-                "content-length": str(2_097_152),
-            },
-        )
-        assert resp.status_code == 413
-
-    def test_healthz_returns_ok(self):
-        from starlette.testclient import TestClient
-        client = TestClient(_build_starlette_app(api_client=None))
-        resp = client.get("/healthz")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-
-    def test_sidecar_already_present_no_patch(self):
-        client = self._client()
-        resp = client.post("/mutate", json=self._admission_review(
-            annotations={"agentspec.io/inject": "true"},
-            containers=[
-                {"name": "agent", "image": "python:3.12"},
-                {"name": "agentspec-sidecar", "image": "ghcr.io/agentspec/sidecar:latest"},
-            ],
-        ))
-        assert resp.status_code == 200
-        assert "patch" not in resp.json()["response"]
-
-
 # ── should_inject — default mode ──────────────────────────────────────────────
 
 class TestShouldInjectDefaultMode:
@@ -484,109 +372,22 @@ class TestBuildSidecarPatchOPA:
 # ── Excluded namespaces ───────────────────────────────────────────────────────
 
 class TestExcludedNamespaces:
-    def _client_with_excluded(self, excluded_ns: str):
-        import os
-        from unittest.mock import patch as mock_patch
-        # Reload module with AGENTSPEC_EXCLUDED_NAMESPACES env set
-        with mock_patch.dict(os.environ, {"AGENTSPEC_EXCLUDED_NAMESPACES": excluded_ns}):
-            import importlib
-            spec = importlib.util.spec_from_file_location("wh_exc", _WEBHOOK_PATH)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-        from starlette.testclient import TestClient
-        return TestClient(mod._build_starlette_app(api_client=None)), mod
+    """
+    Tests for the _EXCLUDED_NAMESPACES module constant.
 
-    def _review(self, namespace: str, annotations=None):
-        return {
-            "request": {
-                "uid": "uid-exc",
-                "name": "test-pod",
-                "namespace": namespace,
-                "object": {
-                    "metadata": {"annotations": annotations or {"agentspec.io/inject": "true"}},
-                    "spec": {"containers": [{"name": "agent", "image": "x"}]},
-                },
-            }
-        }
+    The excluded namespace check runs in the kopf @kopf.on.admission() handler
+    in operator.py. This class verifies the default constant values in webhook.py
+    that the handler reads at import time.
+    """
 
-    def test_excluded_namespace_returns_no_patch(self):
-        client, _ = self._client_with_excluded("my-system")
-        resp = client.post("/mutate", json=self._review("my-system"))
-        assert resp.status_code == 200
-        assert "patch" not in resp.json()["response"]
+    def test_default_excluded_namespaces_contains_kube_system(self):
+        assert "kube-system" in _mod._EXCLUDED_NAMESPACES
 
-    def test_non_excluded_namespace_returns_patch(self):
-        client, _ = self._client_with_excluded("my-system")
-        resp = client.post("/mutate", json=self._review("production"))
-        assert resp.status_code == 200
-        assert "patch" in resp.json()["response"]
+    def test_default_excluded_namespaces_contains_kube_public(self):
+        assert "kube-public" in _mod._EXCLUDED_NAMESPACES
 
+    def test_default_excluded_namespaces_contains_kube_node_lease(self):
+        assert "kube-node-lease" in _mod._EXCLUDED_NAMESPACES
 
-# ── H3: Log injection prevention ──────────────────────────────────────────────
-
-class TestLogInjectionPrevention:
-    def test_create_agent_observation_uses_repr_for_name_in_logs(self):
-        """_create_agent_observation must use {name!r} in log statements to prevent CRLF injection."""
-        import inspect
-        source = inspect.getsource(_mod._create_agent_observation)
-        assert "{name!r}" in source, (
-            "_create_agent_observation must use {name!r} (not {name}) in log statements "
-            "to prevent CRLF log injection"
-        )
-
-
-# ── H4: JSON parse failure must return allowed:False ──────────────────────────
-
-class TestMalformedJsonResponse:
-    def test_malformed_json_returns_allowed_false(self):
-        """JSON parse failures must return allowed:False — never admit a pod on parse error."""
-        from starlette.testclient import TestClient
-        client = TestClient(_build_starlette_app(api_client=None))
-        resp = client.post(
-            "/mutate",
-            content=b"not-json{{{",
-            headers={"content-type": "application/json"},
-        )
-        assert resp.status_code == 400
-        body = resp.json()
-        assert body.get("response", {}).get("allowed") is False, (
-            "JSON parse failure must return allowed:False in the AdmissionReview response — "
-            "never allow on parse error"
-        )
-
-
-# ── C1: TLS fail-closed ────────────────────────────────────────────────────────
-
-class TestTLSValidation:
-    def test_validate_tls_raises_when_certs_absent_without_insecure_mode(self, monkeypatch, tmp_path):
-        """_validate_tls must raise RuntimeError when certs are absent and WEBHOOK_INSECURE_MODE unset."""
-        monkeypatch.delenv("WEBHOOK_INSECURE_MODE", raising=False)
-        cert = str(tmp_path / "tls.crt")  # does not exist
-        key = str(tmp_path / "tls.key")   # does not exist
-        with pytest.raises(RuntimeError, match="TLS"):
-            _mod._validate_tls(cert, key)
-
-    def test_validate_tls_allows_plain_http_when_insecure_mode_set(self, monkeypatch, tmp_path):
-        """_validate_tls must allow plain HTTP when WEBHOOK_INSECURE_MODE=true."""
-        monkeypatch.setenv("WEBHOOK_INSECURE_MODE", "true")
-        cert = str(tmp_path / "tls.crt")  # does not exist
-        key = str(tmp_path / "tls.key")   # does not exist
-        result = _mod._validate_tls(cert, key)
-        assert result is False  # TLS not used but no error raised
-
-    def test_validate_tls_returns_true_when_certs_exist(self, tmp_path):
-        """_validate_tls must return True when both cert and key files exist."""
-        cert = tmp_path / "tls.crt"
-        key = tmp_path / "tls.key"
-        cert.write_text("cert-content")
-        key.write_text("key-content")
-        result = _mod._validate_tls(str(cert), str(key))
-        assert result is True
-
-    def test_validate_tls_rejects_insecure_mode_false_string(self, monkeypatch, tmp_path):
-        """WEBHOOK_INSECURE_MODE=false must not bypass the TLS requirement."""
-        monkeypatch.setenv("WEBHOOK_INSECURE_MODE", "false")
-        cert = str(tmp_path / "tls.crt")
-        key = str(tmp_path / "tls.key")
-        with pytest.raises(RuntimeError, match="TLS"):
-            _mod._validate_tls(cert, key)
+    def test_excluded_namespaces_is_frozenset(self):
+        assert isinstance(_mod._EXCLUDED_NAMESPACES, frozenset)

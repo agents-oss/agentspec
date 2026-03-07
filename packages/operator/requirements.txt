@@ -4,6 +4,3 @@ kopf>=1.37.2,<2
 kubernetes-asyncio>=29.0.0,<31
 httpx>=0.27.0,<1
 pydantic>=2.7.0,<3
-# Webhook server (Phase 2: MutatingWebhook auto-inject)
-starlette>=0.37.0,<1
-uvicorn[standard]>=0.29.0,<1

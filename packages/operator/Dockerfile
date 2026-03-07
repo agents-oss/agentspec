@@ -8,7 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy operator source (webhook.py: Phase 2, remote_watcher.py: Phase 6)
+# Copy operator source (webhook.py: pure business logic, remote_watcher.py: Phase 6)
 COPY operator.py models.py prober.py status.py webhook.py remote_watcher.py ./
 
 # Run as non-root (uid 1000) — required for PSA restricted policy and aligns
@@ -16,11 +16,11 @@ COPY operator.py models.py prober.py status.py webhook.py remote_watcher.py ./
 RUN adduser --system --uid 1000 --no-create-home agentspec
 USER 1000
 
-# Port 9443: webhook TLS (MutatingWebhookConfiguration → webhook.py)
+# Port 9443: kopf native admission webhook (MutatingWebhookConfiguration)
 # Port 8080: Kopf liveness probe
 EXPOSE 9443 8080
 
 # Kopf entrypoint — runs operator.py as a Kopf operator.
-# The webhook server (port 9443) is started as an asyncio task from
-# Kopf's on.startup hook in operator.py when WEBHOOK_ENABLED=true.
+# The admission webhook (port 9443) is served by kopf's built-in WebhookServer
+# when WEBHOOK_ENABLED=true — no separate uvicorn process required.
 ENTRYPOINT ["kopf", "run", "--all-namespaces", "--liveness=http://0.0.0.0:8080/healthz", "operator.py"]

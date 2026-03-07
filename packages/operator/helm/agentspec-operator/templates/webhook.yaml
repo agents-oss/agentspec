@@ -1,6 +1,6 @@
 {{- if .Values.webhook.enabled }}
 ---
-# Service that fronts the webhook server in the operator pod (port 9443).
+# Service that fronts the kopf native admission webhook in the operator pod (port 9443).
 # kube-apiserver sends AdmissionReview requests here.
 apiVersion: v1
 kind: Service
