@@ -35,7 +35,14 @@ async function fetchFromCluster(controlPlaneUrl: string, adminKey?: string): Pro
 
 async function findAgentYamls(dir: string, depth = 0, max = 4): Promise<string[]> {
   if (depth > max) return []
-  const entries = await readdir(dir, { withFileTypes: true })
+  let entries
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`warn: skipping unreadable directory ${dir} — ${msg}\n`)
+    return []
+  }
   const results: string[] = []
   for (const entry of entries) {
     if (entry.name === 'node_modules' || entry.name === '.git') continue

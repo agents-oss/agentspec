@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mkdtempSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
 import { listAgents } from '../tools/listAgents.js'
 
 const fetchMock = vi.fn()
@@ -72,8 +75,8 @@ describe('listAgents — cluster mode', () => {
 
 describe('listAgents — local mode (no controlPlaneUrl)', () => {
   it('falls back to filesystem scan when no controlPlaneUrl', async () => {
-    // Pass a dir that certainly has no agent.yaml
-    const result = JSON.parse(await listAgents({ dir: '/tmp' }))
+    const emptyDir = mkdtempSync(join(tmpdir(), 'agentspec-test-'))
+    const result = JSON.parse(await listAgents({ dir: emptyDir }))
 
     expect(result.source).toBe('local')
   })
