@@ -60,14 +60,14 @@ spec:
 ## Step 1: Validate
 
 ```bash
-npx agentspec validate examples/gymcoach/agent.yaml
+agentspec validate examples/gymcoach/agent.yaml
 ```
 
 ## Step 2: Health Check (in GymCoach repo, with env vars set)
 
 ```bash
 cd /path/to/gymcoach
-npx agentspec health agent.yaml
+agentspec health agent.yaml
 ```
 
 This verifies:
@@ -80,7 +80,7 @@ This verifies:
 ## Step 3: Audit
 
 ```bash
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 ```
 
 GymCoach's full manifest scores ~85/100 (grade B) because:
@@ -96,7 +96,7 @@ GymCoach's full manifest scores ~85/100 (grade B) because:
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
-npx agentspec generate agent.yaml --framework langgraph --output ./generated/
+agentspec generate agent.yaml --framework langgraph --output ./generated/
 ```
 
 This produces a LangGraph version of GymCoach, preserving all tools, memory, and guardrail structure.
@@ -110,7 +110,7 @@ This project uses [AgentSpec](https://agentspec.io) for agent configuration.
 See [agent.yaml](./agent.yaml) for the full manifest.
 
 ```bash
-npx agentspec health   # Check runtime dependencies
-npx agentspec audit    # Compliance report (OWASP LLM Top 10)
+agentspec health   # Check runtime dependencies
+agentspec audit    # Compliance report (OWASP LLM Top 10)
 ```
 ```

@@ -187,14 +187,14 @@ spec:
 
 ```bash
 # 1. Validate
-npx agentspec validate agent.yaml
+agentspec validate agent.yaml
 # ✓ Manifest valid — superagent v2.0.0 (agentspec.io/v1)
 
 # 2. Health check
-npx agentspec health agent.yaml
+agentspec health agent.yaml
 
 # 3. Audit
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 # Expected: ~87/100 (B) — strong config, only missing $secret for API keys
 ```
 
@@ -213,7 +213,7 @@ npx agentspec audit agent.yaml
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
-npx agentspec generate agent.yaml --framework langgraph --output ./superagent-langgraph/
+agentspec generate agent.yaml --framework langgraph --output ./superagent-langgraph/
 ```
 
 Generated files:

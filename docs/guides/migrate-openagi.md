@@ -138,13 +138,13 @@ spec:
 
 ```bash
 # 1. Write the manifest
-npx agentspec validate agent.yaml
+agentspec validate agent.yaml
 
 # 2. Health check (with OPENAI_API_KEY set)
-npx agentspec health agent.yaml
+agentspec health agent.yaml
 
 # 3. Audit
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 # Expected: ~72/100 (C) — no long-term memory, no CI gate, $env not $secret
 ```
 
@@ -164,7 +164,7 @@ npx agentspec audit agent.yaml
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
-npx agentspec generate agent.yaml --framework langgraph --output ./generated/
+agentspec generate agent.yaml --framework langgraph --output ./generated/
 ```
 
 This produces `agent.py` with:
@@ -177,7 +177,7 @@ This produces `agent.py` with:
 ## Export as A2A AgentCard
 
 ```bash
-npx agentspec export agent.yaml --format agentcard
+agentspec export agent.yaml --format agentcard
 ```
 
 ```json

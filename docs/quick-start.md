@@ -5,14 +5,18 @@ Get your first AgentSpec manifest validated and health-checked in 5 minutes.
 ## Prerequisites
 
 - [ ] Node.js 20+
-- [ ] pnpm (or npm / yarn)
+- [ ] AgentSpec CLI installed globally:
+
+```bash
+npm install -g @agentspec/cli
+```
 
 ## 1. Get a manifest
 
 ### Option A — initialize from scratch
 
 ```bash
-npx agentspec init
+agentspec init
 ```
 
 The interactive wizard asks for your agent name, model provider, and which features to enable. It creates `agent.yaml` in the current directory.
@@ -23,8 +27,8 @@ Already have an agent codebase? Generate the manifest from source:
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
-npx agentspec scan --dir ./src/ --dry-run   # preview first
-npx agentspec scan --dir ./src/             # write agent.yaml
+agentspec scan --dir ./src/ --dry-run   # preview first
+agentspec scan --dir ./src/             # write agent.yaml
 ```
 
 Claude reads your `.py` / `.ts` / `.js` files and infers model provider, tools, guardrails,
@@ -70,7 +74,7 @@ echo "You are a helpful assistant." > prompts/system.md
 ## 3. Validate the manifest
 
 ```bash
-npx agentspec validate agent.yaml
+agentspec validate agent.yaml
 ```
 
 Expected output:
@@ -94,7 +98,7 @@ export OPENAI_API_KEY=sk-...
 ## 5. Run health checks
 
 ```bash
-npx agentspec health agent.yaml
+agentspec health agent.yaml
 ```
 
 Expected output:
@@ -116,7 +120,7 @@ Expected output:
 ## 6. Run compliance audit
 
 ```bash
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 ```
 
 The audit scores your agent against OWASP LLM Top 10 and other compliance packs.
@@ -129,7 +133,7 @@ Set your Anthropic API key, then run:
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
-npx agentspec generate agent.yaml --framework langgraph --output ./generated/
+agentspec generate agent.yaml --framework langgraph --output ./generated/
 ```
 
 Get an API key at [console.anthropic.com](https://console.anthropic.com).
@@ -150,7 +154,7 @@ Other supported frameworks: `--framework crewai`, `--framework mastra`.
 No API key needed — output is deterministic.
 
 ```bash
-npx agentspec generate agent.yaml --framework langgraph --deploy k8s --output ./generated/
+agentspec generate agent.yaml --framework langgraph --deploy k8s --output ./generated/
 ```
 
 This writes `generated/k8s/deployment.yaml`, `service.yaml`, `configmap.yaml`, and `secret.yaml.example`. The Deployment always includes `agentspec-sidecar` pre-wired on ports 4000/4001.

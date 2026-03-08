@@ -363,7 +363,7 @@ jobs:
 
       - name: Run audit with proof records
         run: |
-          npx agentspec audit agent.yaml \
+          agentspec audit agent.yaml \
             --url http://localhost:4001 \
             --fail-below 60 \
             --json --output audit-report.json
