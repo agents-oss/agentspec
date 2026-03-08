@@ -82,10 +82,12 @@ Install the MCP server in your AI editor:
 }
 ```
 
-**Claude Code** (`.claude/settings.json` or via `claude mcp add`):
+**Claude Code** (via `claude mcp add`):
 ```bash
 claude mcp add agentspec -- npx -y @agentspec/mcp
 ```
+
+In sidecar mode no env vars are needed — tool arguments point directly at the sidecar.
 
 Tool arguments for sidecar mode:
 ```json
@@ -158,29 +160,76 @@ port-forward.
 
 ### MCP configuration
 
-Same install as sidecar mode — `@agentspec/mcp` supports both modes via tool arguments.
+For operator mode, port-forward the control plane service to your local machine:
 
-Tool arguments for operator mode:
+```bash
+kubectl port-forward svc/agentspec-operator -n agentspec 8080:80
+```
+
+Then configure the MCP server with env vars so all tools automatically use the cluster:
+
 ```json
-// agentspec_health
 {
-  "agentName": "budget-assistant",
-  "controlPlaneUrl": "http://localhost:8080",
-  "adminKey": "sk-optional"
+  "mcpServers": {
+    "agentspec": {
+      "command": "npx",
+      "args": ["-y", "@agentspec/mcp"],
+      "env": {
+        "AGENTSPEC_CONTROL_PLANE_URL": "http://localhost:8080",
+        "AGENTSPEC_ADMIN_KEY": "your-admin-key"
+      }
+    }
+  }
 }
+```
 
-// agentspec_audit
-{
-  "file": "agent.yaml",
-  "agentName": "budget-assistant",
-  "controlPlaneUrl": "http://localhost:8080"
-}
+| Env var | Description |
+|---|---|
+| `AGENTSPEC_CONTROL_PLANE_URL` | Control plane URL (e.g. `http://localhost:8080` after port-forward) |
+| `AGENTSPEC_ADMIN_KEY` | The admin key for the control plane API. This is the same value as `controlPlane.apiKey` in the Helm chart (`values.yaml`). Empty by default — if you didn't set it during install, omit it or leave it as `""`. |
 
-// agentspec_gap
-{
-  "agentName": "budget-assistant",
-  "controlPlaneUrl": "http://localhost:8080"
-}
+This is the same key used in three places:
+
+| Where | Setting | Purpose |
+|---|---|---|
+| Control plane deployment | `AGENTSPEC_ADMIN_KEY` env var | The control plane checks this on every admin request |
+| Helm chart | `controlPlane.apiKey` in `values.yaml` | The operator uses this to poll `GET /api/v1/agents` |
+| MCP server config | `AGENTSPEC_ADMIN_KEY` env var | Your editor uses this to query the control plane |
+
+If you installed with the default Helm values (`controlPlane.apiKey: ""`), the control plane has no admin key set and returns **503** on admin endpoints. To enable them, set the key:
+
+```bash
+# Generate a key
+openssl rand -hex 32
+
+# Set it on the control plane (pick one):
+# Helm upgrade:
+helm upgrade agentspec-operator oci://ghcr.io/agents-oss/charts/agentspec-operator \
+  --set controlPlane.apiKey=<your-key> \
+  --namespace agentspec-system
+
+# Or create the secret directly:
+kubectl create secret generic agentspec-control-plane \
+  --namespace=agentspec-system \
+  --from-literal=apiKey=<your-key>
+```
+
+Then use the same key in your MCP config.
+
+With these env vars set, all cluster-aware tools (`agentspec_list_agents`, `agentspec_health`, `agentspec_audit`, `agentspec_gap`, `agentspec_proof`) automatically query the cluster. Per-call arguments still override env vars when needed.
+
+Tools that only work locally (`agentspec_validate`, `agentspec_scan`, `agentspec_generate`, `agentspec_diff`) are unaffected.
+
+You can still pass tool arguments explicitly to override the defaults:
+```json
+// agentspec_health — override to target a specific agent
+{ "agentName": "budget-assistant" }
+
+// agentspec_list_agents — no args needed, fetches all cluster agents
+{}
+
+// agentspec_audit — local manifest + cluster proofs
+{ "file": "agent.yaml", "agentName": "budget-assistant" }
 ```
 
 ---

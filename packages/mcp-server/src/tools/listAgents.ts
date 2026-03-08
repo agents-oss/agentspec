@@ -1,6 +1,8 @@
 import { readdir, readFile } from 'fs/promises'
 import { join, resolve } from 'path'
 
+// ── Types ────────────────────────────────────────────────────────────────────
+
 interface AgentSummary {
   path: string
   name?: string
@@ -8,6 +10,28 @@ interface AgentSummary {
   model?: string
   framework?: string
 }
+
+export interface ListAgentsArgs {
+  dir?: string
+  controlPlaneUrl?: string
+  adminKey?: string
+}
+
+// ── Cluster mode ─────────────────────────────────────────────────────────────
+
+async function fetchFromCluster(controlPlaneUrl: string, adminKey?: string): Promise<string> {
+  const url = `${controlPlaneUrl.replace(/\/$/, '')}/api/v1/agents`
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  if (adminKey) headers['X-Admin-Key'] = adminKey
+
+  const res = await fetch(url, { headers })
+  if (!res.ok) throw new Error(`GET ${url} returned ${res.status} ${res.statusText}`)
+
+  const agents = JSON.parse(await res.text())
+  return JSON.stringify({ agents, source: 'cluster', total: agents.length })
+}
+
+// ── Local mode ───────────────────────────────────────────────────────────────
 
 async function findAgentYamls(dir: string, depth = 0, max = 4): Promise<string[]> {
   if (depth > max) return []
@@ -37,7 +61,7 @@ async function summarise(filePath: string): Promise<AgentSummary> {
       path: filePath,
       name: extractField(raw, 'name'),
       version: extractField(raw, 'version'),
-      model: extractField(raw, 'id'),     // model.id
+      model: extractField(raw, 'id'),
       framework: extractField(raw, 'framework'),
     }
   } catch {
@@ -45,17 +69,26 @@ async function summarise(filePath: string): Promise<AgentSummary> {
   }
 }
 
-/**
- * Find all agent.yaml files under `dir` (default: cwd) and return a summary list.
- */
-export async function listAgents(dir?: string): Promise<string> {
+async function scanLocal(dir?: string): Promise<string> {
   const root = resolve(dir ?? process.cwd())
   const paths = await findAgentYamls(root)
 
   if (paths.length === 0) {
-    return JSON.stringify({ agents: [], root, message: 'No agent.yaml files found.' })
+    return JSON.stringify({ agents: [], root, source: 'local', message: 'No agent.yaml files found.' })
   }
 
   const agents = await Promise.all(paths.map(summarise))
-  return JSON.stringify({ agents, root, total: agents.length })
+  return JSON.stringify({ agents, root, source: 'local', total: agents.length })
+}
+
+// ── Public orchestrator ──────────────────────────────────────────────────────
+
+export async function listAgents(args?: ListAgentsArgs | string): Promise<string> {
+  // Backward compat: old callers pass a string (dir)
+  if (typeof args === 'string') return scanLocal(args)
+  if (!args) return scanLocal()
+
+  const { controlPlaneUrl, adminKey, dir } = args
+  if (controlPlaneUrl) return fetchFromCluster(controlPlaneUrl, adminKey)
+  return scanLocal(dir)
 }

@@ -171,15 +171,36 @@ kubectl apply -f ./generated/k8s/service.yaml
 
 Install `@agentspec/mcp` to use AgentSpec tools directly inside Claude Code, Cursor, or Windsurf:
 
+**Local development** (validate, health, audit, scan, generate from local files):
 ```bash
 # Claude Code
 claude mcp add agentspec -- npx -y @agentspec/mcp
-
-# Cursor / Windsurf / any MCP-compatible editor — add to mcpServers config:
-# { "mcpServers": { "agentspec": { "command": "npx", "args": ["-y", "@agentspec/mcp"] } } }
 ```
 
-See [Operating Modes](./concepts/operating-modes) for sidecar vs operator configuration.
+**Cluster mode** (list agents, health, gap, proof from the control plane):
+
+Port-forward the control plane first:
+```bash
+kubectl port-forward svc/agentspec-operator -n agentspec 8080:80
+```
+
+Then add `env` to your MCP config (`.claude/settings.json` or Cursor/Windsurf equivalent):
+```json
+{
+  "mcpServers": {
+    "agentspec": {
+      "command": "npx",
+      "args": ["-y", "@agentspec/mcp"],
+      "env": {
+        "AGENTSPEC_CONTROL_PLANE_URL": "http://localhost:8080",
+        "AGENTSPEC_ADMIN_KEY": ""
+      }
+    }
+  }
+}
+```
+
+`AGENTSPEC_ADMIN_KEY` is the same value as `controlPlane.apiKey` in the Helm chart — empty by default. See [Operating Modes](./concepts/operating-modes) for how to set it up and the full guide on sidecar vs operator configuration.
 
 ## What to do next
 

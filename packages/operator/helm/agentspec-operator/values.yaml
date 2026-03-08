@@ -155,7 +155,7 @@ webhook:
 controlPlane:
   # Set to true to enable RemoteAgentWatcher. Requires url and apiKey.
   enabled: false
-  url: ""              # e.g. https://control-plane.agentspec.io
+  url: ""              # e.g. "http://agentspec-control-plane.agentspec-system.svc.cluster.local"
   apiKey: ""           # admin key for GET /api/v1/agents (X-Admin-Key header)
   pollInterval: 30     # seconds between polls
   namespace: agentspec-remote   # namespace where remote CRs are created

@@ -20,6 +20,7 @@ import { gap } from './tools/gap.js'
 import { diff } from './tools/diff.js'
 import { listAgents } from './tools/listAgents.js'
 import { proof } from './tools/proof.js'
+import { resolveCluster } from './cluster-config.js'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -154,11 +155,13 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'agentspec_list_agents',
-    description: 'Find all agent.yaml files under a directory and return a summary list (name, version, model)',
+    description: 'List agents. In cluster mode (controlPlaneUrl provided or AGENTSPEC_CONTROL_PLANE_URL env set), fetches live agents from the control plane. Otherwise, scans the local filesystem for agent.yaml files.',
     inputSchema: {
       type: 'object',
       properties: {
-        dir: { type: 'string', description: 'Directory to search (default: current working directory)' },
+        dir: { type: 'string', description: 'Directory to search for agent.yaml files (local mode, default: cwd)' },
+        controlPlaneUrl: { type: 'string', description: 'Control plane URL to list cluster agents (overrides AGENTSPEC_CONTROL_PLANE_URL env)' },
+        adminKey: { type: 'string', description: 'X-Admin-Key for the control plane API (overrides AGENTSPEC_ADMIN_KEY env)' },
       },
       required: [],
     },
@@ -171,23 +174,27 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
   switch (name) {
     case 'agentspec_validate':
       return validate(args['file'] as string)
-    case 'agentspec_health':
+    case 'agentspec_health': {
+      const cluster = resolveCluster({ controlPlaneUrl: args['controlPlaneUrl'] as string | undefined, adminKey: args['adminKey'] as string | undefined })
       return health({
         file: args['file'] as string | undefined,
         agentName: args['agentName'] as string | undefined,
-        controlPlaneUrl: args['controlPlaneUrl'] as string | undefined,
-        adminKey: args['adminKey'] as string | undefined,
+        controlPlaneUrl: cluster.controlPlaneUrl,
+        adminKey: cluster.adminKey,
         sidecarUrl: args['sidecarUrl'] as string | undefined,
       })
-    case 'agentspec_audit':
+    }
+    case 'agentspec_audit': {
+      const cluster = resolveCluster({ controlPlaneUrl: args['controlPlaneUrl'] as string | undefined, adminKey: args['adminKey'] as string | undefined })
       return audit({
         file: args['file'] as string,
         pack: args['pack'] as string | undefined,
         agentName: args['agentName'] as string | undefined,
-        controlPlaneUrl: args['controlPlaneUrl'] as string | undefined,
-        adminKey: args['adminKey'] as string | undefined,
+        controlPlaneUrl: cluster.controlPlaneUrl,
+        adminKey: cluster.adminKey,
         sidecarUrl: args['sidecarUrl'] as string | undefined,
       })
+    }
     case 'agentspec_scan':
       return scan(args['dir'] as string)
     case 'agentspec_generate':
@@ -196,24 +203,34 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
         args['framework'] as string,
         args['out'] as string | undefined,
       )
-    case 'agentspec_proof':
+    case 'agentspec_proof': {
+      const cluster = resolveCluster({ controlPlaneUrl: args['controlPlaneUrl'] as string | undefined, adminKey: args['adminKey'] as string | undefined })
       return proof({
         agentName: args['agentName'] as string | undefined,
-        controlPlaneUrl: args['controlPlaneUrl'] as string | undefined,
-        adminKey: args['adminKey'] as string | undefined,
+        controlPlaneUrl: cluster.controlPlaneUrl,
+        adminKey: cluster.adminKey,
         sidecarUrl: args['sidecarUrl'] as string | undefined,
       })
-    case 'agentspec_gap':
+    }
+    case 'agentspec_gap': {
+      const cluster = resolveCluster({ controlPlaneUrl: args['controlPlaneUrl'] as string | undefined, adminKey: args['adminKey'] as string | undefined })
       return gap({
         agentName: args['agentName'] as string | undefined,
-        controlPlaneUrl: args['controlPlaneUrl'] as string | undefined,
-        adminKey: args['adminKey'] as string | undefined,
+        controlPlaneUrl: cluster.controlPlaneUrl,
+        adminKey: cluster.adminKey,
         sidecarUrl: args['sidecarUrl'] as string | undefined,
       })
+    }
     case 'agentspec_diff':
       return diff(args['from'] as string, args['to'] as string)
-    case 'agentspec_list_agents':
-      return listAgents(args['dir'] as string | undefined)
+    case 'agentspec_list_agents': {
+      const cluster = resolveCluster({ controlPlaneUrl: args['controlPlaneUrl'] as string | undefined, adminKey: args['adminKey'] as string | undefined })
+      return listAgents({
+        dir: args['dir'] as string | undefined,
+        controlPlaneUrl: cluster.controlPlaneUrl,
+        adminKey: cluster.adminKey,
+      })
+    }
     default:
       throw new Error(`Unknown tool: ${name}`)
   }
