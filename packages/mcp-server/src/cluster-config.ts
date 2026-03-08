@@ -11,7 +11,7 @@ export interface ClusterConfig {
 
 export function resolveCluster(args: ClusterConfig): ClusterConfig {
   return {
-    controlPlaneUrl: args.controlPlaneUrl || process.env['AGENTSPEC_CONTROL_PLANE_URL'] || undefined,
-    adminKey: args.adminKey || process.env['AGENTSPEC_ADMIN_KEY'] || undefined,
+    controlPlaneUrl: args.controlPlaneUrl ?? process.env['AGENTSPEC_CONTROL_PLANE_URL'] ?? undefined,
+    adminKey: args.adminKey ?? process.env['AGENTSPEC_ADMIN_KEY'] ?? undefined,
   }
 }

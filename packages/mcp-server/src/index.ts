@@ -288,10 +288,24 @@ async function handleRpc(req: McpRequest): Promise<McpResponse> {
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
 
+const MAX_BODY_BYTES = 1_048_576 // 1 MB
+
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
+    const contentLength = parseInt(req.headers['content-length'] ?? '0', 10)
+    if (contentLength > MAX_BODY_BYTES) {
+      return reject(new Error(`Body too large: ${contentLength} > ${MAX_BODY_BYTES}`))
+    }
     let body = ''
-    req.on('data', (chunk: Buffer) => { body += chunk.toString() })
+    let received = 0
+    req.on('data', (chunk: Buffer) => {
+      received += chunk.length
+      if (received > MAX_BODY_BYTES) {
+        req.destroy()
+        return reject(new Error('Body too large'))
+      }
+      body += chunk.toString()
+    })
     req.on('end', () => resolve(body))
     req.on('error', reject)
   })
@@ -372,8 +386,8 @@ function startHttp(): void {
       res.end(String(err))
     })
   })
-  server.listen(PORT, () => {
-    process.stderr.write(`AgentSpec MCP server listening on http://localhost:${PORT}/mcp\n`)
+  server.listen(PORT, '127.0.0.1', () => {
+    process.stderr.write(`AgentSpec MCP server listening on http://127.0.0.1:${PORT}/mcp\n`)
   })
 }
 

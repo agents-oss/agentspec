@@ -65,7 +65,7 @@ spec:
             {{- end }}
             {{- if .Values.controlPlane.enabled }}
             - name: CONTROL_PLANE_URL
-              value: {{ .Values.controlPlane.url | quote }}
+              value: {{ include "agentspec-operator.controlPlaneUrl" . | quote }}
             - name: CONTROL_PLANE_KEY
               valueFrom:
                 secretKeyRef:

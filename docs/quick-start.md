@@ -181,7 +181,7 @@ claude mcp add agentspec -- npx -y @agentspec/mcp
 
 Port-forward the control plane first:
 ```bash
-kubectl port-forward svc/agentspec-operator -n agentspec 8080:80
+kubectl port-forward svc/agentspec-operator-control-plane -n agentspec-system 8080:80
 ```
 
 Then add `env` to your MCP config (`.claude/settings.json` or Cursor/Windsurf equivalent):

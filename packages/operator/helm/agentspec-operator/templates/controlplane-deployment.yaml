@@ -1,0 +1,77 @@
+{{- if .Values.controlPlane.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agentspec-operator.name" . }}-control-plane
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentspec-operator.controlPlaneLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controlPlane.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "agentspec-operator.controlPlaneSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agentspec-operator.controlPlaneLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "agentspec-operator.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: control-plane
+          image: {{ include "agentspec-operator.controlPlaneImage" . }}
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: AGENTSPEC_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agentspec-control-plane
+                  key: apiKey
+                  optional: true
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentspec-control-plane
+                  key: jwtSecret
+                  optional: true
+            - name: DATABASE_URL
+              value: {{ .Values.controlPlane.databaseUrl | default "sqlite+aiosqlite:////data/agentspec.db" | quote }}
+            {{- with .Values.controlPlane.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml (.Values.controlPlane.resources | default (dict "requests" (dict "cpu" "50m" "memory" "64Mi") "limits" (dict "cpu" "200m" "memory" "256Mi"))) | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          {{- if not .Values.controlPlane.databaseUrl }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
+      {{- if not .Values.controlPlane.databaseUrl }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+{{- end }}

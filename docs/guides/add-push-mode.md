@@ -150,12 +150,49 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 ```
 
+## Kubernetes (automatic)
+
+When the AgentSpec Operator is deployed with `controlPlane.enabled=true` and `webhook.enabled=true`,
+the webhook automatically injects `AGENTSPEC_CONTROL_PLANE_URL` into every sidecar container.
+
+Agents using the AgentSpec SDK detect this env var and auto-register with the control plane:
+
+1. `POST /api/v1/register` — registers the agent and receives a JWT
+2. `POST /api/v1/heartbeat` — pushes health + gap data on a timer
+
+No manual configuration is needed per agent. The Helm chart manages the control plane URL
+and admin key via a shared Kubernetes Secret (`agentspec-control-plane`).
+
+```bash
+# Enable control plane + webhook in one command
+helm upgrade agentspec agentspec/operator \
+  --set controlPlane.enabled=true \
+  --set controlPlane.apiKey=<your-admin-key> \
+  --set webhook.enabled=true \
+  --set webhook.certManager.enabled=true
+```
+
+The control plane API requires a `JWT_SECRET` (≥ 32 chars) to sign registration tokens.
+The Helm chart auto-derives one from `apiKey` if not set explicitly. For production,
+set `controlPlane.jwtSecret` or create the Secret manually:
+
+```bash
+kubectl create secret generic agentspec-control-plane \
+  --namespace=agentspec-system \
+  --from-literal=apiKey=$(openssl rand -hex 32) \
+  --from-literal=jwtSecret=$(openssl rand -hex 32)
+```
+
+See [Operator Helm Values](../reference/operator-helm-values.md#controlplane) for the full reference.
+
 ## Configuration reference
 
 | Env var | Required | Description |
 |---------|----------|-------------|
-| `AGENTSPEC_URL` | Yes | `POST` endpoint on your control plane |
-| `AGENTSPEC_KEY` | Yes | Bearer token — sent as `Authorization: Bearer <key>` |
+| `AGENTSPEC_URL` | Yes (standalone) | `POST` endpoint on your control plane |
+| `AGENTSPEC_KEY` | Yes (standalone) | Bearer token — sent as `Authorization: Bearer <key>` |
+| `AGENTSPEC_CONTROL_PLANE_URL` | Auto (K8s) | Injected by the webhook when `controlPlane.enabled=true` |
+| `AGENTSPEC_ADMIN_KEY` | Auto (K8s) | Used for registration; injected by the webhook or set in pod env |
 
 The interval defaults to **30 seconds** and can be overridden in code. There is no env var for
 the interval — configure it at the call site.

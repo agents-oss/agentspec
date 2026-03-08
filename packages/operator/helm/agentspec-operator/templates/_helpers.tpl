@@ -43,3 +43,42 @@ Operator image (repo:tag, defaults to Chart.appVersion)
 {{- define "agentspec-operator.image" -}}
 {{ .Values.operator.image.repository }}:{{ .Values.operator.image.tag | default .Chart.AppVersion }}
 {{- end }}
+
+{{/*
+Control plane labels
+*/}}
+{{- define "agentspec-operator.controlPlaneLabels" -}}
+helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+app.kubernetes.io/name: {{ include "agentspec-operator.name" . }}-control-plane
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/component: control-plane
+agentspec.io/role: control-plane
+{{- end }}
+
+{{/*
+Control plane selector labels (stable subset)
+*/}}
+{{- define "agentspec-operator.controlPlaneSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "agentspec-operator.name" . }}-control-plane
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Control plane image (repo:tag)
+*/}}
+{{- define "agentspec-operator.controlPlaneImage" -}}
+{{ .Values.controlPlane.image.repository }}:{{ .Values.controlPlane.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{/*
+Control plane internal service URL (auto-resolved when controlPlane.url is empty)
+*/}}
+{{- define "agentspec-operator.controlPlaneUrl" -}}
+{{- if .Values.controlPlane.url -}}
+{{ .Values.controlPlane.url }}
+{{- else -}}
+http://{{ include "agentspec-operator.name" . }}-control-plane.{{ .Release.Namespace }}.svc.cluster.local
+{{- end -}}
+{{- end }}

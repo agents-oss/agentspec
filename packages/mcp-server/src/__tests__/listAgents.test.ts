@@ -26,6 +26,7 @@ describe('listAgents — cluster mode', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8080/api/v1/agents')
     expect(result.agents).toHaveLength(2)
     expect(result.agents[0].agentName).toBe('budget-assistant')
+    expect(result.agents[0].heartbeat).toBe(true)
     expect(result.source).toBe('cluster')
   })
 
@@ -47,12 +48,42 @@ describe('listAgents — cluster mode', () => {
     expect(headers['X-Admin-Key']).toBeUndefined()
   })
 
-  it('throws on non-ok response', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' })
+  it('returns empty agents with helpful message when control plane has no agents', async () => {
+    fetchMock.mockResolvedValue({ ok: true, text: async () => '[]' })
 
-    await expect(
-      listAgents({ controlPlaneUrl: 'http://localhost:8080' }),
-    ).rejects.toThrow('401')
+    const result = JSON.parse(await listAgents({ controlPlaneUrl: 'http://localhost:8080' }))
+
+    expect(result.agents).toEqual([])
+    expect(result.source).toBe('cluster')
+    expect(result.summary.total).toBe(0)
+    expect(result.summary.message).toContain('No agents registered')
+    expect(result.summary.message).toContain('POST /api/v1/register')
+  })
+
+  it('returns summary with heartbeat counts based on lastSeen', async () => {
+    fetchMock.mockResolvedValue({ ok: true, text: async () => CLUSTER_AGENTS })
+
+    const result = JSON.parse(await listAgents({ controlPlaneUrl: 'http://localhost:8080' }))
+
+    // Both agents have lastSeen set → both have heartbeat: true
+    expect(result.summary.total).toBe(2)
+    expect(result.summary.withHeartbeat).toBe(2)
+    expect(result.summary.withoutHeartbeat).toBe(0)
+  })
+
+  it('marks agents without lastSeen as no heartbeat', async () => {
+    const mixed = JSON.stringify([
+      { agentName: 'with-heartbeat', lastSeen: '2026-03-08T12:00:00Z' },
+      { agentName: 'no-heartbeat' },
+    ])
+    fetchMock.mockResolvedValue({ ok: true, text: async () => mixed })
+
+    const result = JSON.parse(await listAgents({ controlPlaneUrl: 'http://localhost:8080' }))
+
+    expect(result.agents[0].heartbeat).toBe(true)
+    expect(result.agents[1].heartbeat).toBe(false)
+    expect(result.summary.withHeartbeat).toBe(1)
+    expect(result.summary.withoutHeartbeat).toBe(1)
   })
 
   it('strips trailing slash from controlPlaneUrl', async () => {
@@ -63,8 +94,18 @@ describe('listAgents — cluster mode', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8080/api/v1/agents')
   })
 
-  it('returns empty agents array when cluster has none', async () => {
-    fetchMock.mockResolvedValue({ ok: true, text: async () => '[]' })
+  it('gracefully handles control plane fetch failure', async () => {
+    fetchMock.mockRejectedValue(new Error('ECONNREFUSED'))
+
+    const result = JSON.parse(await listAgents({ controlPlaneUrl: 'http://localhost:8080' }))
+
+    expect(result.agents).toEqual([])
+    expect(result.source).toBe('cluster')
+    expect(result.summary.total).toBe(0)
+  })
+
+  it('gracefully handles non-ok response from control plane', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 503, statusText: 'Service Unavailable' })
 
     const result = JSON.parse(await listAgents({ controlPlaneUrl: 'http://localhost:8080' }))
 
