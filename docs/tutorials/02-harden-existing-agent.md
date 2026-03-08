@@ -11,7 +11,7 @@ You have a working agent. This tutorial takes it from unknown compliance grade t
 
 ```bash
 export ANTHROPIC_API_KEY=ant-...
-npx agentspec scan --dir ./src/ --dry-run
+agentspec scan --dir ./src/ --dry-run
 ```
 
 `--dry-run` prints the generated `agent.yaml` to stdout without writing anything. Review it — Claude infers model, tools, guardrails, memory backend, and required env vars from your source files.
@@ -19,13 +19,13 @@ npx agentspec scan --dir ./src/ --dry-run
 When the output looks reasonable:
 
 ```bash
-npx agentspec scan --dir ./src/ --out agent.yaml
+agentspec scan --dir ./src/ --out agent.yaml
 ```
 
 If you already have an `agent.yaml`, use `--update` to scan into a new file and diff later:
 
 ```bash
-npx agentspec scan --dir ./src/ --out agent.yaml.new
+agentspec scan --dir ./src/ --out agent.yaml.new
 ```
 
 ---
@@ -33,7 +33,7 @@ npx agentspec scan --dir ./src/ --out agent.yaml.new
 ## 2. Read the baseline audit score
 
 ```bash
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 ```
 
 For most legacy agents this produces a score of 30–55 (grade D or F). Don't panic — the audit is showing you exactly what's missing. Example output:
@@ -138,8 +138,8 @@ EOF
 ## 5. Verify the fixes
 
 ```bash
-npx agentspec validate agent.yaml
-npx agentspec health agent.yaml
+agentspec validate agent.yaml
+agentspec health agent.yaml
 ```
 
 Health checks confirm your model API is reachable and env vars are set. Validation confirms the manifest is schema-valid.
@@ -149,7 +149,7 @@ Health checks confirm your model API is reachable and env vars are set. Validati
 ## 6. Read the improved score
 
 ```bash
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 ```
 
 With the three fixes above, expect a score of 68–78 (grade C+ to B). Check the output for remaining violations — each is a concrete manifest field you can add.
@@ -161,7 +161,7 @@ With the three fixes above, expect a score of 68–78 (grade C+ to B). Check the
 If you used `--out agent.yaml.new` in step 1:
 
 ```bash
-npx agentspec diff agent.yaml.new agent.yaml
+agentspec diff agent.yaml.new agent.yaml
 ```
 
 This shows a drift score between the auto-generated baseline and your hardened version. A negative drift score means you improved the manifest relative to what the scanner inferred.
@@ -201,7 +201,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npx agentspec audit agent.yaml --fail-below 70
+      - run: agentspec audit agent.yaml --fail-below 70
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 ```
@@ -211,7 +211,7 @@ jobs:
 To also gate on live endpoint compliance when you have a staging environment:
 
 ```bash
-npx agentspec audit agent.yaml --url $STAGING_SIDECAR_URL --fail-below 70
+agentspec audit agent.yaml --url $STAGING_SIDECAR_URL --fail-below 70
 ```
 
 ---

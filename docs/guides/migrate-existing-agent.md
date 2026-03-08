@@ -179,7 +179,7 @@ spec:
 ## Step 3: Validate
 
 ```bash
-npx agentspec validate agent.yaml
+agentspec validate agent.yaml
 ```
 
 Fix any schema errors before continuing. Common mistakes:
@@ -196,7 +196,7 @@ export GROQ_API_KEY=gsk_...
 export DATABASE_URL=postgres://...
 export REDIS_URL=redis://...
 
-npx agentspec health agent.yaml
+agentspec health agent.yaml
 ```
 
 Common failures:
@@ -209,7 +209,7 @@ Common failures:
 ## Step 5: Audit
 
 ```bash
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 ```
 
 The well-configured gym coach above scores **~88/100 (B)**:
@@ -229,7 +229,7 @@ To reach grade A (90+), move API keys to `$secret:` references.
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
-npx agentspec generate agent.yaml --framework langgraph --output ./generated/
+agentspec generate agent.yaml --framework langgraph --output ./generated/
 ```
 
 The adapter maps every manifest field to production-ready Python:
@@ -249,17 +249,17 @@ Add this block to your project's `AGENTS.md`:
 This project uses [AgentSpec](https://agentspec.io) for agent configuration.
 See [agent.yaml](./agent.yaml) for the full manifest.
 
-Run `npx agentspec health` to verify all runtime dependencies.
-Run `npx agentspec audit` for the OWASP LLM Top 10 compliance report.
+Run `agentspec health` to verify all runtime dependencies.
+Run `agentspec audit` for the OWASP LLM Top 10 compliance report.
 ```
 
 ---
 
 ## Checklist
 
-- [ ] `npx agentspec validate agent.yaml` exits 0
-- [ ] `npx agentspec health agent.yaml` shows all `error` checks passing
-- [ ] `npx agentspec audit agent.yaml` scores ≥ 75 (grade B)
+- [ ] `agentspec validate agent.yaml` exits 0
+- [ ] `agentspec health agent.yaml` shows all `error` checks passing
+- [ ] `agentspec audit agent.yaml` scores ≥ 75 (grade B)
 - [ ] `agent.yaml` committed to the repo
 - [ ] `AGENTS.md` references `agent.yaml`
 - [ ] CI pipeline runs `agentspec validate` and `agentspec audit`

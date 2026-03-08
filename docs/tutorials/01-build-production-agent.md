@@ -11,7 +11,7 @@ Take an agent from an empty directory to a Grade A, SDK-integrated, locally depl
 
 ```bash
 mkdir my-agent && cd my-agent
-npx agentspec init
+agentspec init
 ```
 
 The wizard prompts for:
@@ -55,7 +55,7 @@ The `$env:` syntax is resolved at runtime — the key is never written to disk.
 ## 3. Validate the manifest
 
 ```bash
-npx agentspec validate agent.yaml
+agentspec validate agent.yaml
 ```
 
 Expected output:
@@ -154,7 +154,7 @@ spec:
 ```bash
 export OPENAI_API_KEY=sk-...
 export REDIS_URL=redis://localhost:6379
-npx agentspec health agent.yaml
+agentspec health agent.yaml
 ```
 
 All checks should pass. If `model:openai/gpt-4o` fails, verify your API key is valid and has GPT-4o access. If `memory:redis` fails, verify Redis is running (`redis-cli ping`).
@@ -164,7 +164,7 @@ All checks should pass. If `model:openai/gpt-4o` fails, verify your API key is v
 ## 8. Run the compliance audit
 
 ```bash
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 ```
 
 A typical starting score is around 55–65 (grade C). The audit output lists violations with severity badges.
@@ -211,7 +211,7 @@ EOF
 Re-run the audit:
 
 ```bash
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 ```
 
 Target: score ≥ 75 (grade B) before generating code.
@@ -222,7 +222,7 @@ Target: score ≥ 75 (grade B) before generating code.
 
 ```bash
 export ANTHROPIC_API_KEY=ant-...
-npx agentspec generate agent.yaml --framework langgraph --output ./generated/
+agentspec generate agent.yaml --framework langgraph --output ./generated/
 ```
 
 Claude reads your full manifest — model, tools, memory, guardrails, evals — and generates:
@@ -273,7 +273,7 @@ uvicorn agent:app --port 8000
 With the agent running locally, run the sidecar endpoint audit:
 
 ```bash
-npx agentspec audit agent.yaml --url http://localhost:4000
+agentspec audit agent.yaml --url http://localhost:4000
 ```
 
 The output now shows a **dual score**: declared (static analysis) + proved (live verification via sidecar). External-evidence rules show `[X]` badges and a pending proof count.

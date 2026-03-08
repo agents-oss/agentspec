@@ -6,7 +6,7 @@ Generate Python AutoGen agent code from your `agent.yaml` manifest.
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
-npx agentspec generate agent.yaml --framework autogen --output ./generated/
+agentspec generate agent.yaml --framework autogen --output ./generated/
 ```
 
 Get an API key at [console.anthropic.com](https://console.anthropic.com).
@@ -74,7 +74,7 @@ spec:
 ```
 
 ```bash
-npx agentspec generate agent.yaml --framework autogen --output ./generated/
+agentspec generate agent.yaml --framework autogen --output ./generated/
 cd generated
 pip install -r requirements.txt
 cp .env.example .env

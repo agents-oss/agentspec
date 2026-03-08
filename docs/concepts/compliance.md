@@ -6,10 +6,10 @@ AgentSpec's compliance system scores your agent against security and quality bes
 
 ```bash
 # Declaration checks only (no I/O)
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 
 # + proof records from a running sidecar (dual score)
-npx agentspec audit agent.yaml --url http://localhost:4001
+agentspec audit agent.yaml --url http://localhost:4001
 ```
 
 Output without `--url`:
@@ -202,16 +202,16 @@ Suppressed rules are excluded from scoring but logged in the audit report.
 
 ```bash
 # Fail CI if declared score drops below 70
-npx agentspec audit agent.yaml --fail-below 70
+agentspec audit agent.yaml --fail-below 70
 
 # Run only security rules
-npx agentspec audit agent.yaml --pack owasp-llm-top10
+agentspec audit agent.yaml --pack owasp-llm-top10
 
 # Fetch proof records from sidecar + dual score in JSON
-npx agentspec audit agent.yaml --url http://localhost:4001 --json --output audit-report.json
+agentspec audit agent.yaml --url http://localhost:4001 --json --output audit-report.json
 
 # Output JSON for processing
-npx agentspec audit agent.yaml --json --output audit-report.json
+agentspec audit agent.yaml --json --output audit-report.json
 ```
 
 ## Scheduled Audits

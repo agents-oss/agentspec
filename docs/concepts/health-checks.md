@@ -7,7 +7,7 @@ AgentSpec's health check system verifies that all runtime dependencies are prese
 ## Running Health Checks
 
 ```bash
-npx agentspec health agent.yaml
+agentspec health agent.yaml
 ```
 
 Output:
@@ -100,16 +100,16 @@ Loopback (`127.x.x.x`, `::1`, `localhost`) and link-local (`169.254.x.x`, `fe80:
 
 ```bash
 # Exit code 1 on warnings too (strict mode for CI)
-npx agentspec health agent.yaml --fail-on warning
+agentspec health agent.yaml --fail-on warning
 
 # JSON output for CI processing
-npx agentspec health agent.yaml --json
+agentspec health agent.yaml --json
 
 # Skip slow model API checks
-npx agentspec health agent.yaml --no-model
+agentspec health agent.yaml --no-model
 
 # Skip MCP server checks
-npx agentspec health agent.yaml --no-mcp
+agentspec health agent.yaml --no-mcp
 ```
 
 ## Declaring Runtime Requirements

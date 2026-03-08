@@ -238,20 +238,20 @@ cp agent.yaml /path/to/gpt-researcher/agent.yaml
 cd /path/to/gpt-researcher
 
 # 2. Validate the manifest (no I/O required)
-npx agentspec validate agent.yaml
+agentspec validate agent.yaml
 # ✓ agent.yaml is valid
 
 # 3. Health check (requires OPENAI_API_KEY and TAVILY_API_KEY)
 export OPENAI_API_KEY=sk-...
 export TAVILY_API_KEY=tvly-...
-npx agentspec health agent.yaml
+agentspec health agent.yaml
 # ✓ env:OPENAI_API_KEY    present
 # ✓ env:TAVILY_API_KEY    present
 # ✓ openai API            reachable (HTTP 200)
 # ✗ langsmith tracing     LANGCHAIN_API_KEY not set (optional — tracing disabled)
 
 # 4. Run the full compliance audit
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 # Score: ~74/100 (C)  — see breakdown below
 ```
 
@@ -336,7 +336,7 @@ With all three applied, the expected score rises to ~88/100 (grade B).
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
-npx agentspec generate agent.yaml --framework langgraph --output ./generated/
+agentspec generate agent.yaml --framework langgraph --output ./generated/
 ```
 
 This produces a `generated/` directory with:
@@ -361,7 +361,7 @@ The generated `agent.py` includes:
 ## Export as AgentCard
 
 ```bash
-npx agentspec export agent.yaml --format agentcard
+agentspec export agent.yaml --format agentcard
 ```
 
 ```json

@@ -6,7 +6,7 @@ Generate Python LangGraph agent code from your `agent.yaml` manifest.
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
-npx agentspec generate agent.yaml --framework langgraph --output ./generated/
+agentspec generate agent.yaml --framework langgraph --output ./generated/
 ```
 
 Get an API key at [console.anthropic.com](https://console.anthropic.com).

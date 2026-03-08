@@ -84,7 +84,7 @@ AgentSpec validates manifests using a Zod schema. Every field is type-checked an
 - Tool names must be lowercase slugs
 
 ```bash
-npx agentspec validate agent.yaml
+agentspec validate agent.yaml
 ```
 
 ## IDE Autocomplete
@@ -119,7 +119,7 @@ This project uses [AgentSpec](https://agentspec.io) for agent configuration.
 See [agent.yaml](./agent.yaml) for the full manifest.
 
 ```bash
-npx agentspec health   # Check runtime dependencies
-npx agentspec audit    # Compliance report
+agentspec health   # Check runtime dependencies
+agentspec audit    # Compliance report
 ```
 ```

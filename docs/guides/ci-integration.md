@@ -16,10 +16,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Validate manifest schema
-        run: npx agentspec validate agent.yaml
+        run: agentspec validate agent.yaml
 
       - name: Compliance audit
-        run: npx agentspec audit agent.yaml --fail-below 75
+        run: agentspec audit agent.yaml --fail-below 75
 ```
 
 ## Fail on score threshold
@@ -28,10 +28,10 @@ Use `--fail-below <score>` to fail CI if compliance drops below a threshold:
 
 ```bash
 # Fail if overall score drops below 80
-npx agentspec audit agent.yaml --fail-below 80
+agentspec audit agent.yaml --fail-below 80
 
 # Audit only a specific pack
-npx agentspec audit agent.yaml --pack owasp-llm-top10 --fail-below 90
+agentspec audit agent.yaml --pack owasp-llm-top10 --fail-below 90
 ```
 
 ## Detect configuration drift
@@ -41,7 +41,7 @@ deterministic — no API key required.
 
 ```yaml
       - name: Check for compliance drift
-        run: npx agentspec diff agent.yaml.baseline agent.yaml --exit-code
+        run: agentspec diff agent.yaml.baseline agent.yaml --exit-code
 ```
 
 Exit code `1` is returned when any change is detected. Use `--json` to capture the report as an
@@ -50,7 +50,7 @@ artefact:
 ```yaml
       - name: Detect drift
         run: |
-          npx agentspec diff agent.yaml.baseline agent.yaml \
+          agentspec diff agent.yaml.baseline agent.yaml \
             --json > drift-report.json || true
 
       - name: Fail if HIGH severity drift
@@ -82,7 +82,7 @@ git commit -m "chore: update agent.yaml baseline after guardrail review"
 
 ```yaml
       - name: Compliance audit
-        run: npx agentspec audit agent.yaml --json --output audit-report.json
+        run: agentspec audit agent.yaml --json --output audit-report.json
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -97,7 +97,7 @@ git commit -m "chore: update agent.yaml baseline after guardrail review"
 
 ```yaml
       - name: Generate Kubernetes manifests
-        run: npx agentspec generate agent.yaml --framework langgraph --deploy k8s --output ./k8s-out/
+        run: agentspec generate agent.yaml --framework langgraph --deploy k8s --output ./k8s-out/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -115,10 +115,10 @@ services available:
 
 ```bash
 # validate only — no network I/O
-npx agentspec validate agent.yaml
+agentspec validate agent.yaml
 
 # audit only — no network I/O
-npx agentspec audit agent.yaml
+agentspec audit agent.yaml
 ```
 
 ## Full pipeline example
@@ -136,19 +136,19 @@ jobs:
 
       # 1. Schema — fast, no I/O
       - name: Validate schema
-        run: npx agentspec validate agent.yaml
+        run: agentspec validate agent.yaml
 
       # 2. Compliance audit — no I/O
       - name: Audit compliance
-        run: npx agentspec audit agent.yaml --fail-below 75 --json --output audit-report.json
+        run: agentspec audit agent.yaml --fail-below 75 --json --output audit-report.json
 
       # 3. Drift detection against baseline — no API key needed
       - name: Detect drift
-        run: npx agentspec diff agent.yaml.baseline agent.yaml --exit-code --json > drift-report.json
+        run: agentspec diff agent.yaml.baseline agent.yaml --exit-code --json > drift-report.json
 
       # 4. k8s manifests — deterministic, no API key needed
       - name: Generate k8s manifests
-        run: npx agentspec generate agent.yaml --framework langgraph --deploy k8s --output ./k8s-out/
+        run: agentspec generate agent.yaml --framework langgraph --deploy k8s --output ./k8s-out/
 
       - uses: actions/upload-artifact@v4
         if: always()

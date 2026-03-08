@@ -11,7 +11,7 @@ Deploy a LangGraph agent to Kubernetes with the AgentSpec sidecar pre-wired, the
 
 ```bash
 export ANTHROPIC_API_KEY=ant-...
-npx agentspec generate agent.yaml --framework langgraph --deploy k8s --output ./generated/
+agentspec generate agent.yaml --framework langgraph --deploy k8s --output ./generated/
 ```
 
 The `--deploy k8s` flag generates a full Kubernetes package alongside the Python code:
@@ -235,7 +235,7 @@ kubectl port-forward deployment/my-agent 4001:4001
 Run the full dual-score audit:
 
 ```bash
-npx agentspec audit agent.yaml --url http://localhost:4001
+agentspec audit agent.yaml --url http://localhost:4001
 ```
 
 The output now shows both declared and proved scores:

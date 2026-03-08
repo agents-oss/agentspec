@@ -1,6 +1,6 @@
 # CLI Reference
 
-All AgentSpec CLI commands. Run via `npx agentspec` or install globally: `npm i -g @agentspec/cli`.
+All AgentSpec CLI commands. Run via `agentspec` or install globally: `npm i -g @agentspec/cli`.
 
 ## `agentspec init`
 
