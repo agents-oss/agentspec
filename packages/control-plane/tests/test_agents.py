@@ -1,6 +1,7 @@
 """
-Tests for GET /api/v1/agents and GET /api/v1/agents/{name}/health.
-Both endpoints require X-Admin-Key authentication.
+Tests for GET /api/v1/agents, GET /api/v1/agents/{name}/health,
+GET /api/v1/agents/{name}/gap, and GET /api/v1/agents/{name}/proof.
+All endpoints require X-Admin-Key authentication.
 """
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ import json
 
 import pytest
 
-from tests.conftest import ADMIN_HEADERS, make_gap, make_health
+from tests.conftest import ADMIN_HEADERS, make_gap, make_health, make_proof
 
 
 @pytest.mark.asyncio
@@ -196,3 +197,83 @@ async def test_get_health_returns_most_recent(registered, monkeypatch):
 
     resp = await ac.get("/api/v1/agents/test-bedrock/health", headers=ADMIN_HEADERS)
     assert resp.json()["status"] == "ready"
+
+
+# ── GET /agents/{name}/proof ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_proof_unknown_agent_returns_404(client):
+    ac, _ = client
+    resp = await ac.get("/api/v1/agents/does-not-exist/proof", headers=ADMIN_HEADERS)
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_proof_no_heartbeat_yet_returns_404(client):
+    ac, _ = client
+    await ac.post(
+        "/api/v1/register",
+        json={"agentName": "silent-agent", "runtime": "local"},
+        headers=ADMIN_HEADERS,
+    )
+    resp = await ac.get("/api/v1/agents/silent-agent/proof", headers=ADMIN_HEADERS)
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_proof_returns_stored_records(registered):
+    ac, mock_upsert, agent_id, api_key = registered
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    proof_payload = make_proof("SEC-LLM-06")
+    await ac.post(
+        "/api/v1/heartbeat",
+        content=json.dumps({"health": make_health(), "gap": make_gap(), "proof": proof_payload}),
+        headers=headers,
+    )
+    resp = await ac.get("/api/v1/agents/test-bedrock/proof", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["records"][0]["ruleId"] == "SEC-LLM-06"
+    assert data["records"][0]["verifiedBy"] == "ci-pipeline"
+    assert "receivedAt" in data
+
+
+@pytest.mark.asyncio
+async def test_get_proof_empty_when_no_proof_in_heartbeat(registered):
+    ac, mock_upsert, agent_id, api_key = registered
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    # heartbeat without proof field — defaults to []
+    await ac.post(
+        "/api/v1/heartbeat",
+        content=json.dumps({"health": make_health(), "gap": make_gap()}),
+        headers=headers,
+    )
+    resp = await ac.get("/api/v1/agents/test-bedrock/proof", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert resp.json()["records"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_proof_requires_auth(client):
+    ac, _ = client
+    resp = await ac.get("/api/v1/agents/some-agent/proof")
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_get_proof_strips_unknown_fields(registered):
+    """Proof response must strip unknown fields via StoredProofRecord schema."""
+    ac, mock_upsert, agent_id, api_key = registered
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    proof_with_extra = make_proof()
+    proof_with_extra[0]["internal_secret"] = "sk-sensitive"
+    await ac.post(
+        "/api/v1/heartbeat",
+        content=json.dumps({"health": make_health(), "gap": make_gap(), "proof": proof_with_extra}),
+        headers=headers,
+    )
+    resp = await ac.get("/api/v1/agents/test-bedrock/proof", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    record = resp.json()["records"][0]
+    assert "internal_secret" not in record
+    assert record["ruleId"] == "SEC-LLM-06"

@@ -126,6 +126,7 @@ async def heartbeat(
         received_at=now,
         health=data.health,
         gap=data.gap,
+        proof=data.proof,
     )
     session.add(hb)
 

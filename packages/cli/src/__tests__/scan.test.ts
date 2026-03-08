@@ -21,25 +21,23 @@ import { collectSourceFiles, resolveOutputPath } from '../commands/scan.js'
 vi.mock('@agentspec/adapter-claude', () => ({
   generateWithClaude: vi.fn().mockResolvedValue({
     files: {
-      'agent.yaml': [
-        'agentspec: v1',
-        'metadata:',
-        '  name: my-agent',
-        'spec:',
-        '  model:',
-        '    provider: openai',
-        '    name: gpt-4o',
-      ].join('\n'),
+      // Minimal ScanDetection JSON — builder converts this to valid YAML
+      'detection.json': '{"name":"my-agent","description":"Test agent","modelProvider":"openai","modelId":"gpt-4o","modelApiKeyEnv":"OPENAI_API_KEY","envVars":["OPENAI_API_KEY"]}',
     },
     installCommands: [],
     envVars: [],
   }),
+  repairYaml: vi.fn().mockResolvedValue(''),
   listFrameworks: vi.fn(() => ['langgraph', 'crewai', 'mastra']),
 }))
 
-vi.mock('@agentspec/sdk', () => ({
-  loadManifest: vi.fn().mockReturnValue({ manifest: { name: 'test-agent' } }),
-}))
+vi.mock('@agentspec/sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@agentspec/sdk')>()
+  return {
+    ...actual,
+    loadManifest: vi.fn().mockReturnValue({ manifest: { name: 'test-agent' } }),
+  }
+})
 
 vi.mock('@clack/prompts', () => ({
   spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
@@ -285,7 +283,7 @@ describe('scan — CLI integration', () => {
     writeFileSync(join(srcDir, 'agent.yaml'), 'name: old')
     await runScan(srcDir, ['--update'])
     const content = readFileSync(join(srcDir, 'agent.yaml'), 'utf-8')
-    expect(content).toContain('agentspec: v1')
+    expect(content).toContain('apiVersion: agentspec.io/v1')
   })
 
   it('--dry-run prints to stdout and does not write a file', async () => {

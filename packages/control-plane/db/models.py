@@ -42,5 +42,6 @@ class Heartbeat(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     health: Mapped[dict] = mapped_column(JSON, nullable=False)
     gap: Mapped[dict] = mapped_column(JSON, nullable=False)
+    proof: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
     agent: Mapped[Agent] = relationship(back_populates="heartbeats")

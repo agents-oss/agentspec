@@ -1,7 +1,7 @@
 {
-  "$ref": "#/definitions/AgentSpecManifest",
+  "$ref": "#/definitions/AgentSpec",
   "definitions": {
-    "AgentSpecManifest": {
+    "AgentSpec": {
       "type": "object",
       "properties": {
         "apiVersion": {
@@ -859,7 +859,10 @@
                         ],
                         "additionalProperties": false
                       }
-                    ]
+                    ],
+                    "discriminator": {
+                      "propertyName": "type"
+                    }
                   },
                   "description": "Guardrails applied to user input before it is sent to the model. Evaluated in order — first blocking rule wins."
                 },
@@ -993,7 +996,10 @@
                         ],
                         "additionalProperties": false
                       }
-                    ]
+                    ],
+                    "discriminator": {
+                      "propertyName": "type"
+                    }
                   },
                   "description": "Guardrails applied to model output before it is returned to the user. Evaluated in order — first blocking rule wins."
                 }

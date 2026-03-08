@@ -110,6 +110,18 @@ def make_health(status: str = "ready") -> dict:
     }
 
 
+def make_proof(rule_id: str = "SEC-LLM-06") -> list:
+    return [
+        {
+            "ruleId": rule_id,
+            "verifiedAt": "2026-03-01T10:00:00Z",
+            "verifiedBy": "ci-pipeline",
+            "method": "pii-scan",
+            "expiresAt": "2026-04-08T00:00:00Z",
+        }
+    ]
+
+
 def make_gap(score: int = 90) -> dict:
     return {
         "score": score,

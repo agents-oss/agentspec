@@ -26,10 +26,13 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs'
-import { extname, join, relative, resolve } from 'node:path'
+import { extname, join, resolve } from 'node:path'
 import { Command } from 'commander'
-import { spinner } from '@clack/prompts'
-import { generateWithClaude } from '@agentspec/adapter-claude'
+import * as jsYaml from 'js-yaml'
+import { spinner } from '../utils/spinner.js'
+import { generateWithClaude, repairYaml } from '@agentspec/adapter-claude'
+import { ManifestSchema } from '@agentspec/sdk'
+import { buildManifestFromDetection, type ScanDetection } from './scan-builder.js'
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -49,6 +52,7 @@ export interface ScanOptions {
 
 const MAX_FILES = 50
 const MAX_BYTES = 200 * 1024 // 200 KB
+const MAX_REPAIR_ITERATIONS = 2 // safety net — builder should produce valid YAML
 
 const SOURCE_EXTENSIONS = new Set(['.py', '.ts', '.js', '.mjs', '.cjs'])
 
@@ -202,10 +206,11 @@ function collectAndValidateSourceFiles(srcDir: string): SourceFile[] {
 }
 
 /**
- * Validate that Claude returned a well-formed response with an agent.yaml entry.
- * Exits with a descriptive error on any structural mismatch.
+ * Extract a ScanDetection from the raw Claude response.
+ * Claude returns detection.json (raw facts) — the builder converts it to YAML.
+ * Throws with a descriptive message on any structural mismatch.
  */
-function validateScanResponse(rawResult: unknown): string {
+function parseDetection(rawResult: unknown): ScanDetection {
   if (
     !rawResult ||
     typeof rawResult !== 'object' ||
@@ -213,15 +218,46 @@ function validateScanResponse(rawResult: unknown): string {
     typeof (rawResult as Record<string, unknown>).files !== 'object' ||
     (rawResult as Record<string, unknown>).files === null
   ) {
-    console.error('Claude returned an unexpected response format (missing "files" object).')
-    process.exit(1)
+    throw new Error('Claude returned an unexpected response format (missing "files" object).')
   }
-  const agentYaml = (rawResult as { files: Record<string, string> }).files['agent.yaml']
-  if (!agentYaml) {
-    console.error('Claude did not return an agent.yaml in the output.')
-    process.exit(1)
+  const detectionJson = (rawResult as { files: Record<string, string> }).files['detection.json']
+  if (!detectionJson) {
+    throw new Error('Claude did not return detection.json in the output.')
   }
-  return agentYaml
+  let detection: ScanDetection
+  try {
+    detection = JSON.parse(detectionJson) as ScanDetection
+  } catch (e) {
+    throw new Error(`Failed to parse detection JSON: ${(e as Error).message}`)
+  }
+  const requiredFields = ['name', 'description', 'modelProvider', 'modelId', 'modelApiKeyEnv'] as const
+  const missing = requiredFields.filter(f => !detection[f])
+  if (!Array.isArray(detection.envVars)) missing.push('envVars' as never)
+  if (missing.length) {
+    throw new Error(`Detection JSON is missing required fields: ${missing.join(', ')}`)
+  }
+  return detection
+}
+
+// ── Schema validation ─────────────────────────────────────────────────────────
+
+interface ValidationOk { valid: true }
+interface ValidationFail { valid: false; errors: string; errorCount: number }
+type ValidationResult = ValidationOk | ValidationFail
+
+function validateManifestYaml(yamlStr: string): ValidationResult {
+  let parsed: unknown
+  try {
+    parsed = jsYaml.load(yamlStr)
+  } catch (e) {
+    return { valid: false, errors: `YAML parse error: ${(e as Error).message}`, errorCount: 1 }
+  }
+  const result = ManifestSchema.safeParse(parsed)
+  if (result.success) return { valid: true }
+  const errors = result.error.errors
+    .map(e => `  - ${e.path.join('.') || '(root)'}: ${e.message}`)
+    .join('\n')
+  return { valid: false, errors, errorCount: result.error.errors.length }
 }
 
 // ── Commander registration ─────────────────────────────────────────────────────
@@ -247,16 +283,14 @@ export function registerScanCommand(program: Command): void {
       const sourceFiles = collectAndValidateSourceFiles(srcDir)
 
       const s = spinner()
-      s.start('Analysing source code with Claude…')
+      s.start('Analysing source code…')
 
-      // [H1] Pass source file paths to generateWithClaude via contextFiles.
-      // adapter-claude's buildContext reads each path and embeds its content
-      // in the prompt, making all source code visible to the Claude skill.
+      // Phase 1: detect (Claude) — returns raw facts as detection.json
       let rawResult: unknown
       try {
         rawResult = await generateWithClaude(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          {} as any, // empty manifest — the scan skill generates one from source
+          {} as any, // empty manifest — the scan skill detects from source
           {
             framework: 'scan',
             contextFiles: sourceFiles.map(f => f.path),
@@ -269,10 +303,50 @@ export function registerScanCommand(program: Command): void {
         process.exit(1)
       }
 
-      s.stop('Analysis complete')
+      // Phase 2: build manifest from detection (pure TypeScript — deterministic)
+      let agentYaml: string
+      try {
+        s.message('Building manifest…')
+        const detection = parseDetection(rawResult)
+        const manifest = buildManifestFromDetection(detection)
+        agentYaml = jsYaml.dump(manifest, { lineWidth: 120 })
+      } catch (err) {
+        s.stop('Failed')
+        console.error(`Build failed: ${(err as Error).message}`)
+        process.exit(1)
+      }
 
-      // [H2] Runtime validation — never trust the cast alone
-      const agentYaml = validateScanResponse(rawResult)
+      // Phase 3: validate (safety net — should always pass with the builder)
+      let validation = validateManifestYaml(agentYaml)
+
+      for (let attempt = 1; !validation.valid && attempt <= MAX_REPAIR_ITERATIONS; attempt++) {
+        s.message(
+          `Fixing ${validation.errorCount} schema error(s) — attempt ${attempt}/${MAX_REPAIR_ITERATIONS}…`,
+        )
+        try {
+          agentYaml = await repairYaml(agentYaml, validation.errors)
+          validation = validateManifestYaml(agentYaml)
+        } catch (err) {
+          s.stop('Failed')
+          console.error(`Repair failed: ${(err as Error).message}`)
+          process.exit(1)
+        }
+      }
+
+      if (validation.valid) {
+        s.stop('Analysis complete ✓') // covers all 3 phases
+      } else {
+        s.stop(`Analysis complete (${validation.errorCount} schema error(s) remain — review the file)`)
+        // Prepend remaining errors as comments so the user can see what needs fixing
+        agentYaml =
+          `# agentspec validate errors — fix before committing:\n` +
+          validation.errors
+            .split('\n')
+            .map(l => `# ${l}`)
+            .join('\n') +
+          '\n\n' +
+          agentYaml
+      }
 
       if (opts.dryRun) {
         console.log(agentYaml)
