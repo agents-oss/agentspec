@@ -1,6 +1,6 @@
 {
   "name": "@agentspec/cli",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "AgentSpec CLI — validate, health, audit, generate, init",
   "author": "Sallah Kokaina <sallah.kokaina@gmail.com>",
   "license": "Apache-2.0",
