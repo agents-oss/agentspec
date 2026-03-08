@@ -484,6 +484,7 @@ const ComplianceSchema = z.object({
         'model-resilience',
         'evaluation-coverage',
         'observability',
+        'metadata-quality',
       ]),
     )
     .optional()
