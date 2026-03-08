@@ -1,0 +1,260 @@
+---
+# Patch for fitness-tracker: adds SDK push mode (heartbeats → control plane).
+#
+# The mock Python server is extended to:
+#   1. Register with the control plane (POST /api/v1/register)
+#   2. Push heartbeats every 15s (POST /api/v1/heartbeat)
+#
+# After this patch the control plane's GET /api/v1/agents returns fitness-tracker
+# with a fresh lastSeen timestamp, and the MCP agentspec_list_agents tool shows
+# heartbeat: true for this agent.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fitness-tracker
+  namespace: demo
+  labels:
+    agentspec.io/agent: fitness-tracker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fitness-tracker
+  template:
+    metadata:
+      labels:
+        app: fitness-tracker
+        agentspec.io/agent: fitness-tracker
+    spec:
+      # MED-2: pod-level security context — all containers inherit runAsNonRoot
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        # ── Agent application container (simulates SDK-integrated LangGraph agent) ──
+        - name: fitness-tracker
+          image: python:3.12.9-slim   # MED-1: pinned patch version, not :latest
+          # Mock server simulating a fully-integrated agentspec SDK agent with push mode.
+          # In addition to the four endpoints the sidecar expects, this version:
+          #   - Registers with the control plane on startup (POST /api/v1/register)
+          #   - Pushes heartbeats every 15s (POST /api/v1/heartbeat)
+          command:
+            - python3
+            - -c
+            - |
+              import json, http.server, datetime, threading, os, urllib.request, urllib.error
+              TOOLS = [
+                {"name": "plan-workout", "description": "Generate a personalised workout plan"},
+                {"name": "log-session",  "description": "Record a completed workout session"},
+                {"name": "get-progress", "description": "Retrieve user progress metrics"},
+              ]
+              def health_report():
+                  return {
+                      "agentName": "fitness-tracker",
+                      "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                      "status": "healthy",
+                      "summary": {"passed": 5, "failed": 0, "warnings": 0, "skipped": 0},
+                      "checks": [
+                          {"id": "env:GROQ_API_KEY",              "category": "env",   "status": "pass", "severity": "error", "message": "GROQ_API_KEY is set"},
+                          {"id": "model:groq/llama-3.3-70b-versatile", "category": "model", "status": "pass", "severity": "error", "latencyMs": 88},
+                          {"id": "tool:plan-workout",              "category": "tool",  "status": "pass", "severity": "info"},
+                          {"id": "tool:log-session",               "category": "tool",  "status": "pass", "severity": "info"},
+                          {"id": "tool:get-progress",              "category": "tool",  "status": "pass", "severity": "info"},
+                      ],
+                  }
+              class H(http.server.BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      if "agentspec/health" in self.path:
+                          b = json.dumps(health_report()).encode()
+                      elif "cap" in self.path:
+                          b = json.dumps({"tools": TOOLS}).encode()
+                      else:
+                          b = json.dumps({"status": "ok"}).encode()
+                      self.send_response(200)
+                      self.send_header("Content-Type", "application/json")
+                      self.send_header("Content-Length", str(len(b)))
+                      self.end_headers()
+                      self.wfile.write(b)
+                  def log_message(self, *a): pass
+
+              # ── Push mode: register + heartbeat loop ──────────────────────────
+              CP_URL = os.environ.get("AGENTSPEC_CONTROL_PLANE_URL", "")
+              ADMIN_KEY = os.environ.get("AGENTSPEC_ADMIN_KEY", "")
+              _jwt_token = None
+
+              def _post(url, body, headers=None):
+                  data = json.dumps(body).encode()
+                  hdrs = {"Content-Type": "application/json"}
+                  if headers:
+                      hdrs.update(headers)
+                  req = urllib.request.Request(url, data=data, headers=hdrs, method="POST")
+                  try:
+                      with urllib.request.urlopen(req, timeout=10) as resp:
+                          raw = resp.read().decode()
+                          return json.loads(raw) if raw.strip() else {}
+                  except urllib.error.HTTPError as e:
+                      print(f"[push] HTTP {e.code}: {e.read().decode()[:200]}", flush=True)
+                      return None
+                  except Exception as e:
+                      print(f"[push] error: {e}", flush=True)
+                      return None
+
+              def register():
+                  global _jwt_token
+                  if not CP_URL:
+                      return
+                  url = CP_URL.rstrip("/") + "/api/v1/register"
+                  headers = {}
+                  if ADMIN_KEY:
+                      headers["X-Admin-Key"] = ADMIN_KEY
+                  result = _post(url, {"agentName": "fitness-tracker", "runtime": "k8s"}, headers)
+                  if result and "apiKey" in result:
+                      _jwt_token = result["apiKey"]
+                      print(f"[push] registered with control plane, agentId={result.get('agentId','?')}", flush=True)
+                  else:
+                      print("[push] registration failed, will retry on next heartbeat", flush=True)
+
+              def push_heartbeat():
+                  global _jwt_token
+                  if not CP_URL:
+                      return
+                  if not _jwt_token:
+                      register()
+                      if not _jwt_token:
+                          return
+                  url = CP_URL.rstrip("/") + "/api/v1/heartbeat"
+                  payload = {"health": health_report(), "gap": {"issues": [], "summary": "No gaps detected"}}
+                  _post(url, payload, {"Authorization": f"Bearer {_jwt_token}"})
+
+              def heartbeat_loop():
+                  import time
+                  register()
+                  while True:
+                      time.sleep(15)
+                      push_heartbeat()
+
+              # Start heartbeat in background thread if control plane URL is set
+              if CP_URL:
+                  t = threading.Thread(target=heartbeat_loop, daemon=True)
+                  t.start()
+                  print(f"[push] heartbeat loop started → {CP_URL}", flush=True)
+
+              http.server.HTTPServer(("", 8080), H).serve_forever()
+          env:
+            # GROQ_API_KEY set to demo value — agent reports it as passing in /agentspec/health
+            - name: GROQ_API_KEY
+              value: "sk-agentspec-demo-groq"
+            # Push mode: control plane URL + admin key for registration
+            - name: AGENTSPEC_CONTROL_PLANE_URL
+              value: "http://agentspec-operator-control-plane.agentspec-system.svc.cluster.local"
+            - name: AGENTSPEC_ADMIN_KEY
+              value: "demo-admin-key"
+          ports:
+            - containerPort: 8080
+              name: http
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+        # ── agentspec-sidecar (control plane on port 4001) ───────────────────
+        - name: sidecar
+          image: agentspec/sidecar:local   # MED-1: pinned, not :latest
+          env:
+            - name: UPSTREAM_URL
+              value: "http://localhost:8080"
+            - name: MANIFEST_PATH
+              value: "/config/agent.yaml"
+            - name: OPA_URL
+              value: "http://localhost:8181"
+            - name: OPA_PROXY_MODE
+              value: "enforce"
+            # GROQ_API_KEY set so sidecar static env check passes
+            - name: GROQ_API_KEY
+              value: "sk-agentspec-demo-groq"
+          ports:
+            - containerPort: 4001
+              name: control
+          volumeMounts:
+            - name: agent-manifest
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/live
+              port: control
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          # MED-2: container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # MED-2: resource limits
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+        # ── OPA policy enforcement sidecar (port 8181) ───────────────────────
+        - name: opa
+          image: openpolicyagent/opa:0.70.0-static   # pinned version, not :latest
+          args:
+            - run
+            - --server
+            - --addr=:8181
+            - --log-level=error
+            - /policies/policy.rego
+            - /policies/data.json
+            - --log-level
+            - error
+          ports:
+            - containerPort: 8181
+              name: opa
+          volumeMounts:
+            - name: opa-policy
+              mountPath: /policies
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: opa
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+
+      volumes:
+        - name: agent-manifest
+          configMap:
+            name: fitness-tracker-agent-yaml
+        - name: opa-policy
+          configMap:
+            name: fitness-tracker-opa-policy

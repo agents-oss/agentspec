@@ -120,7 +120,7 @@ The Operator service exposes a REST API. Access it via:
 
 **Local cluster** (kind, minikube, etc.):
 ```bash
-kubectl port-forward svc/agentspec-operator -n agentspec 8080:80
+kubectl port-forward svc/agentspec-operator-control-plane -n agentspec-system 8080:80
 # → http://localhost:8080
 ```
 
@@ -163,7 +163,7 @@ port-forward.
 For operator mode, port-forward the control plane service to your local machine:
 
 ```bash
-kubectl port-forward svc/agentspec-operator -n agentspec 8080:80
+kubectl port-forward svc/agentspec-operator-control-plane -n agentspec-system 8080:80
 ```
 
 Then configure the MCP server with env vars so all tools automatically use the cluster:
@@ -204,15 +204,19 @@ openssl rand -hex 32
 
 # Set it on the control plane (pick one):
 # Helm upgrade:
-helm upgrade agentspec-operator oci://ghcr.io/agents-oss/charts/agentspec-operator \
+helm upgrade agentspec agentspec/operator \
+  --set controlPlane.enabled=true \
   --set controlPlane.apiKey=<your-key> \
   --namespace agentspec-system
 
 # Or create the secret directly:
 kubectl create secret generic agentspec-control-plane \
   --namespace=agentspec-system \
-  --from-literal=apiKey=<your-key>
+  --from-literal=apiKey=<your-key> \
+  --from-literal=jwtSecret=$(openssl rand -hex 32)
 ```
+
+The control plane also requires `JWT_SECRET` (≥ 32 chars) for signing agent registration tokens. The Helm chart auto-derives one from `apiKey` if not set. For production, set it explicitly via `controlPlane.jwtSecret` or in the Secret.
 
 Then use the same key in your MCP config.
 
@@ -241,7 +245,7 @@ Port-forward is a **transport detail**, not a separate mode:
 | Mode | Port-forward scope | kubectl command |
 |---|---|---|
 | **Sidecar** | Per agent (one process per agent) | `kubectl port-forward deployment/<name> <local>:4001` |
-| **Operator** | Per cluster (one process, all agents) | `kubectl port-forward svc/agentspec-operator -n agentspec 8080:80` |
+| **Operator** | Per cluster (one process, all agents) | `kubectl port-forward svc/agentspec-operator-control-plane -n agentspec-system 8080:80` |
 
 VS Code manages sidecar port-forwards automatically (idle cleanup on deactivate).
 Operator port-forward is a one-time manual step.

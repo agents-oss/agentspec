@@ -118,6 +118,7 @@ def build_sidecar_patch(
     opa_image: str = _OPA_IMAGE,
     opa_proxy_mode: str = _OPA_PROXY_MODE,
     opa_policy_configmap_suffix: str = _OPA_POLICY_CONFIGMAP_SUFFIX,
+    control_plane_url: str = "",
 ) -> list[dict[str, Any]]:
     """
     Build the JSON Patch operations to inject the agentspec-sidecar container
@@ -156,6 +157,8 @@ def build_sidecar_patch(
     ]
     if check_interval:
         sidecar_env.append({"name": "AGENTSPEC_CHECK_INTERVAL", "value": check_interval})
+    if control_plane_url:
+        sidecar_env.append({"name": "AGENTSPEC_CONTROL_PLANE_URL", "value": control_plane_url})
     if opa_enabled:
         sidecar_env.append({"name": "OPA_URL", "value": "http://localhost:8181"})
         sidecar_env.append({"name": "OPA_PROXY_MODE", "value": effective_opa_mode})

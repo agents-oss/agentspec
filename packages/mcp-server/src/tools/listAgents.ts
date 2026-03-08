@@ -11,24 +11,64 @@ interface AgentSummary {
   framework?: string
 }
 
+interface ClusterAgent {
+  agentId?: string
+  agentName: string
+  runtime?: string
+  phase?: string
+  grade?: string
+  score?: number
+  lastSeen?: string
+  heartbeat: boolean
+}
+
 export interface ListAgentsArgs {
   dir?: string
   controlPlaneUrl?: string
   adminKey?: string
 }
 
-// ── Cluster mode ─────────────────────────────────────────────────────────────
+// ── Control plane (heartbeat agents) ────────────────────────────────────────
 
-async function fetchFromCluster(controlPlaneUrl: string, adminKey?: string): Promise<string> {
+async function fetchHeartbeatAgents(controlPlaneUrl: string, adminKey?: string): Promise<ClusterAgent[]> {
   const url = `${controlPlaneUrl.replace(/\/$/, '')}/api/v1/agents`
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (adminKey) headers['X-Admin-Key'] = adminKey
 
-  const res = await fetch(url, { headers })
-  if (!res.ok) throw new Error(`GET ${url} returned ${res.status} ${res.statusText}`)
+  try {
+    const res = await fetch(url, { headers })
+    if (!res.ok) return [] // control plane may be empty or unavailable
+    const agents = JSON.parse(await res.text()) as Record<string, unknown>[]
+    return agents.map(a => ({
+      ...a,
+      heartbeat: a.lastSeen != null,
+    }) as ClusterAgent)
+  } catch {
+    return []
+  }
+}
 
-  const agents = JSON.parse(await res.text())
-  return JSON.stringify({ agents, source: 'cluster', total: agents.length })
+// ── Cluster mode ─────────────────────────────────────────────────────────────
+
+async function fetchFromCluster(controlPlaneUrl: string, adminKey?: string): Promise<string> {
+  const heartbeatAgents = await fetchHeartbeatAgents(controlPlaneUrl, adminKey)
+
+  const total = heartbeatAgents.length
+  const withHeartbeat = heartbeatAgents.filter(a => a.heartbeat).length
+
+  return JSON.stringify({
+    agents: heartbeatAgents,
+    source: 'cluster',
+    total,
+    summary: {
+      total,
+      withHeartbeat,
+      withoutHeartbeat: total - withHeartbeat,
+      message: total === 0
+        ? 'No agents registered in the control plane. Agents need to call POST /api/v1/register and push heartbeats via the SDK push mode (AGENTSPEC_URL + AGENTSPEC_KEY env vars).'
+        : `${total} agent(s) registered, ${withHeartbeat} with active heartbeats.`,
+    },
+  })
 }
 
 // ── Local mode ───────────────────────────────────────────────────────────────

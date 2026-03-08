@@ -149,13 +149,54 @@ webhook:
     # The ConfigMap must contain policy.rego and data.json as top-level keys.
     policyConfigMapSuffix: "opa-policy"
 
-# ── RemoteAgentWatcher ────────────────────────────────────────────────────────
-# Polls the control plane and upserts AgentObservation CRs for remote agents
-# (Bedrock, Vertex, Docker, local) into a dedicated namespace.
+# ── Control Plane ─────────────────────────────────────────────────────────────
+# Deploys the AgentSpec control plane (FastAPI REST API) as a sub-component.
+# The operator's RemoteAgentWatcher polls it for cross-runtime agent visibility.
+#
+# When enabled, the control plane is deployed alongside the operator and a
+# ClusterIP Service is created. If url is left empty, it auto-resolves to the
+# internal service URL (http://<name>-control-plane.<namespace>.svc.cluster.local).
 controlPlane:
-  # Set to true to enable RemoteAgentWatcher. Requires url and apiKey.
+  # Set to true to deploy the control plane and enable RemoteAgentWatcher.
   enabled: false
-  url: ""              # e.g. "http://agentspec-control-plane.agentspec-system.svc.cluster.local"
-  apiKey: ""           # admin key for GET /api/v1/agents (X-Admin-Key header)
-  pollInterval: 30     # seconds between polls
+
+  image:
+    repository: ghcr.io/agents-oss/agentspec-control-plane
+    tag: latest   # override with --set controlPlane.image.tag=X.Y.Z
+    pullPolicy: IfNotPresent
+
+  # Override the control plane URL. Leave empty to auto-resolve to the
+  # internal ClusterIP Service created by this chart.
+  url: ""
+
+  # Admin key for the control plane API (X-Admin-Key header).
+  # This same key is used in three places:
+  #   1. Control plane deployment (AGENTSPEC_ADMIN_KEY env var)
+  #   2. Operator RemoteAgentWatcher (CONTROL_PLANE_KEY env var)
+  #   3. MCP server / CLI config (AGENTSPEC_ADMIN_KEY env var)
+  # Empty by default — admin endpoints return 503 until set.
+  apiKey: ""
+
+  pollInterval: 30     # seconds between RemoteAgentWatcher polls
   namespace: agentspec-remote   # namespace where remote CRs are created
+
+  # Database URL for the control plane. Defaults to local SQLite.
+  # For production, use PostgreSQL:
+  #   databaseUrl: "postgresql+asyncpg://user:pass@host:5432/agentspec"
+  databaseUrl: ""      # leave empty for default SQLite at /data/agentspec.db
+
+  # Resource requests/limits for the control plane pod
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+  replicas: 1
+
+  # Extra environment variables for the control plane pod
+  env: []
+  # - name: LOG_LEVEL
+  #   value: DEBUG

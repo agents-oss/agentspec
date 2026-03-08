@@ -159,15 +159,63 @@ When `opa.enabled` is `true`, the webhook injects an OPA container alongside eve
 
 ## `controlPlane`
 
-Enables `RemoteAgentWatcher`, which polls the control plane and upserts `AgentObservation` CRs for remote agents (Bedrock, Vertex, Docker, local) into a dedicated namespace.
+Deploys the AgentSpec control plane (FastAPI REST API) as a sub-component of the Helm chart and enables `RemoteAgentWatcher`, which polls it and upserts `AgentObservation` CRs for remote agents into a dedicated namespace.
+
+When enabled, a `Deployment`, `Service`, and `Secret` are created alongside the operator. If `controlPlane.url` is left empty, the internal service URL is auto-resolved (`http://<release>-control-plane.<namespace>.svc.cluster.local`).
+
+### Quick enable
+
+```bash
+helm upgrade agentspec agentspec/operator \
+  --set controlPlane.enabled=true \
+  --set controlPlane.apiKey=<your-admin-key>
+```
+
+This creates a Kubernetes Secret `agentspec-control-plane` with:
+- `apiKey` — the admin key for the control plane API
+- `jwtSecret` — used to sign agent registration JWTs (auto-derived from `apiKey` if not set; **set explicitly in production**)
+
+### Values reference
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `controlPlane.enabled` | `false` | Enable `RemoteAgentWatcher`. |
-| `controlPlane.url` | `""` | Control plane base URL (e.g. `https://control-plane.agentspec.io`). |
-| `controlPlane.apiKey` | `""` | Admin key for `GET /api/v1/agents`. Stored in a Kubernetes Secret. |
-| `controlPlane.pollInterval` | `30` | Seconds between polls. |
-| `controlPlane.namespace` | `agentspec-remote` | Namespace where remote `AgentObservation` CRs are created. Created automatically if it does not exist. |
+| `controlPlane.enabled` | `false` | Deploy the control plane and enable `RemoteAgentWatcher`. |
+| `controlPlane.image.repository` | `ghcr.io/agents-oss/agentspec-control-plane` | Control plane container image. |
+| `controlPlane.image.tag` | `latest` | Image tag. Override with `--set controlPlane.image.tag=X.Y.Z`. |
+| `controlPlane.image.pullPolicy` | `IfNotPresent` | Image pull policy. |
+| `controlPlane.url` | `""` | Override the control plane URL. Leave empty to auto-resolve to the internal ClusterIP Service. |
+| `controlPlane.apiKey` | `""` | Admin key for the control plane API (`X-Admin-Key` header). Stored in Secret `agentspec-control-plane`. **Required** — admin endpoints return 503 until set. |
+| `controlPlane.jwtSecret` | `""` | Secret used to sign agent registration JWTs. Must be ≥ 32 characters. If empty, auto-derived from `apiKey` (not recommended for production). |
+| `controlPlane.databaseUrl` | `""` | Database URL. Defaults to local SQLite at `/data/agentspec.db`. For production use PostgreSQL: `postgresql+asyncpg://user:pass@host:5432/agentspec`. |
+| `controlPlane.pollInterval` | `30` | Seconds between `RemoteAgentWatcher` polls. |
+| `controlPlane.namespace` | `agentspec-remote` | Namespace where remote `AgentObservation` CRs are created. |
+| `controlPlane.replicas` | `1` | Replica count. |
+| `controlPlane.resources` | see values.yaml | Resource requests/limits for the control plane pod. |
+| `controlPlane.env` | `[]` | Extra environment variables for the control plane pod. |
+
+### Secret layout
+
+The Helm chart creates Secret `agentspec-control-plane` with two keys:
+
+| Key | Source | Used by |
+|-----|--------|---------|
+| `apiKey` | `controlPlane.apiKey` | Control plane (`AGENTSPEC_ADMIN_KEY`), operator (`CONTROL_PLANE_KEY`), MCP/CLI |
+| `jwtSecret` | `controlPlane.jwtSecret` or auto-derived | Control plane (`JWT_SECRET`) — signs registration JWTs |
+
+For production, create the Secret manually instead of using Helm values:
+
+```bash
+kubectl create secret generic agentspec-control-plane \
+  --namespace=agentspec-system \
+  --from-literal=apiKey=$(openssl rand -hex 32) \
+  --from-literal=jwtSecret=$(openssl rand -hex 32)
+```
+
+Then install with `controlPlane.enabled=true` but omit `controlPlane.apiKey` — the chart picks up the existing Secret.
+
+### Webhook auto-injection
+
+When both `controlPlane.enabled` and `webhook.enabled` are `true`, the operator webhook automatically injects `AGENTSPEC_CONTROL_PLANE_URL` into every sidecar container it creates. Agents using the AgentSpec SDK can then auto-register and push heartbeats without manual configuration.
 
 ---
 

@@ -369,6 +369,34 @@ class TestBuildSidecarPatchOPA:
         assert all(op["path"] == "/spec/volumes/-" for op in vol_ops)
 
 
+# ── build_sidecar_patch — control plane URL injection ────────────────────────
+
+class TestBuildSidecarPatchControlPlane:
+    def _annotated(self):
+        return {"agentspec.io/inject": "true"}
+
+    def test_control_plane_url_injected_when_set(self):
+        patch = build_sidecar_patch(
+            _pod_spec(), self._annotated(),
+            control_plane_url="http://agentspec-cp.agentspec-system.svc.cluster.local",
+        )
+        sidecar_op = next(op for op in patch if op.get("value", {}).get("name") == "agentspec-sidecar")
+        env = {e["name"]: e["value"] for e in sidecar_op["value"].get("env", [])}
+        assert env.get("AGENTSPEC_CONTROL_PLANE_URL") == "http://agentspec-cp.agentspec-system.svc.cluster.local"
+
+    def test_control_plane_url_not_injected_when_empty(self):
+        patch = build_sidecar_patch(_pod_spec(), self._annotated(), control_plane_url="")
+        sidecar_op = next(op for op in patch if op.get("value", {}).get("name") == "agentspec-sidecar")
+        env_names = [e["name"] for e in sidecar_op["value"].get("env", [])]
+        assert "AGENTSPEC_CONTROL_PLANE_URL" not in env_names
+
+    def test_control_plane_url_not_injected_by_default(self):
+        patch = build_sidecar_patch(_pod_spec(), self._annotated())
+        sidecar_op = next(op for op in patch if op.get("value", {}).get("name") == "agentspec-sidecar")
+        env_names = [e["name"] for e in sidecar_op["value"].get("env", [])]
+        assert "AGENTSPEC_CONTROL_PLANE_URL" not in env_names
+
+
 # ── Excluded namespaces ───────────────────────────────────────────────────────
 
 class TestExcludedNamespaces:

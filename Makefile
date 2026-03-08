@@ -10,6 +10,7 @@ DEMO_CLUSTER   := agentspec
 DEMO_OP_NS     := agentspec-system
 DEMO_AGENT_NS  := demo
 OPERATOR_IMAGE := agentspec/operator:dev
+CP_IMAGE       := agentspec/control-plane:dev
 
 # Set USE_KIND=false + KUBE_CONTEXT=<ctx> to skip kind and use an existing cluster.
 # Works out of the box with orbstack/Docker Desktop K8s (shared Docker daemon).
@@ -59,7 +60,7 @@ help:
 	@printf "    $(GREEN)demo-verify$(RESET)    Run the UAT verify script\n"
 	@printf "    $(GREEN)demo-e2e$(RESET)      Run automated e2e pytest suite (proxy+OPA+gap+events)\n"
 	@printf "    $(GREEN)demo-status$(RESET)    Show live AgentObservation phase/grade/score table\n"
-	@printf "    $(GREEN)demo-patch$(RESET)     Live patch: voice-assistant C→A + research-agent F→A\n"
+	@printf "    $(GREEN)demo-patch$(RESET)     Live patch: voice-assistant C→A, research-agent F→A, fitness-tracker push mode\n"
 	@printf "    $(GREEN)demo-reset$(RESET)     Restore agents to pre-patch state (replay the demo)\n"
 	@printf "    $(GREEN)demo-logs$(RESET)      Tail the operator logs\n"
 	@printf "    $(GREEN)demo-down$(RESET)      Delete the kind cluster\n"
@@ -174,12 +175,15 @@ demo-operator: demo-cluster
 	else \
 	  printf "\n  $(BOLD)Building operator image $(OPERATOR_IMAGE)...$(RESET)\n"; \
 	  docker build -t $(OPERATOR_IMAGE) packages/operator; \
+	  printf "\n  $(BOLD)Building control plane image $(CP_IMAGE)...$(RESET)\n"; \
+	  docker build -t $(CP_IMAGE) packages/control-plane; \
 	  if [ "$(USE_KIND)" = "true" ]; then \
-	    printf "  $(BOLD)Loading image into kind cluster '$(DEMO_CLUSTER)'...$(RESET)\n"; \
+	    printf "  $(BOLD)Loading images into kind cluster '$(DEMO_CLUSTER)'...$(RESET)\n"; \
 	    kind load docker-image $(OPERATOR_IMAGE) --name $(DEMO_CLUSTER); \
+	    kind load docker-image $(CP_IMAGE) --name $(DEMO_CLUSTER); \
 	  fi; \
 	fi
-	@printf "  $(BOLD)Deploying operator via Helm...$(RESET)\n"
+	@printf "  $(BOLD)Deploying operator + control plane via Helm...$(RESET)\n"
 	helm upgrade --install agentspec \
 	  packages/operator/helm/agentspec-operator \
 	  --kube-context $(KUBE_CONTEXT) \
@@ -187,6 +191,13 @@ demo-operator: demo-cluster
 	  --set operator.image.repository=agentspec/operator \
 	  --set operator.image.tag=dev \
 	  --set operator.image.pullPolicy=$(if $(filter true,$(USE_KIND)),Never,IfNotPresent) \
+	  --set controlPlane.enabled=true \
+	  --set controlPlane.image.repository=agentspec/control-plane \
+	  --set controlPlane.image.tag=dev \
+	  --set controlPlane.image.pullPolicy=$(if $(filter true,$(USE_KIND)),Never,IfNotPresent) \
+	  --set controlPlane.apiKey=demo-admin-key \
+	  --set-string webhook.enabled=true \
+	  --set webhook.certManager.enabled=false \
 	  --wait --timeout=120s
 
 ## Deploy all five demo agent pods + AgentObservation CRs
@@ -258,8 +269,9 @@ demo-status:
 demo-logs:
 	kubectl logs -n $(DEMO_OP_NS) --context $(KUBE_CONTEXT) deploy/agentspec-operator -f
 
-## Live patching demo — watch two agents improve in real time
+## Live patching demo — watch agents improve in real time
 ## voice-assistant: C→A (manifest-static)   research-agent: F→A (agent-sdk)
+## fitness-tracker: enable push mode → heartbeat visible in control plane
 demo-patch:
 	@echo ""
 	@printf "  $(BOLD)Live patching demo — watch grades improve in real time$(RESET)\n"
@@ -318,6 +330,19 @@ demo-patch:
 	@printf "  $(GREEN)✓ [research-agent] AFTER: score=100 grade=A phase=Healthy source=agent-sdk$(RESET)\n"
 	@printf "  violations: none\n"
 	@echo ""
+	@# ─── fitness-tracker: enable push mode (heartbeats → control plane) ─────
+	@printf "  $(BOLD)[fitness-tracker] Enabling push mode$(RESET) — SDK heartbeats → control plane\n"
+	@printf "  Agent will register + push heartbeats every 15s\n"
+	@echo ""
+	kubectl apply -f packages/operator/demo/patches/fitness-tracker-patched-deployment.yaml \
+	  --context $(KUBE_CONTEXT)
+	kubectl rollout status deployment/fitness-tracker -n $(DEMO_AGENT_NS) \
+	  --context $(KUBE_CONTEXT) --timeout=60s
+	@printf "  $(GREEN)✓ Deployment updated (push mode active)$(RESET)\n"
+	@printf "  Waiting 5s for first heartbeat...\n"
+	@sleep 5
+	@printf "  $(GREEN)✓ [fitness-tracker] now visible in control plane with heartbeat: true$(RESET)\n"
+	@echo ""
 	$(MAKE) demo-status
 
 ## Reset patched agents to original degraded state (for replaying the demo)
@@ -328,8 +353,10 @@ demo-reset:
 	  --context $(KUBE_CONTEXT)
 	kubectl apply -f packages/operator/demo/research-agent/deployment.yaml \
 	  --context $(KUBE_CONTEXT)
+	kubectl apply -f packages/operator/demo/fitness-tracker/deployment.yaml \
+	  --context $(KUBE_CONTEXT)
 	kubectl rollout status \
-	  deployment/voice-assistant deployment/research-agent \
+	  deployment/voice-assistant deployment/research-agent deployment/fitness-tracker \
 	  -n $(DEMO_AGENT_NS) --context $(KUBE_CONTEXT) --timeout=60s
 	@printf "  $(GREEN)✓ Demo reset — run 'make demo-patch' again to replay$(RESET)\n"
 	@echo ""

@@ -62,22 +62,34 @@ plugins:
 
 {{- if .Values.controlPlane.enabled }}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- RemoteAgentWatcher (cross-runtime visibility)
+ Control Plane
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Control plane deployed at:
+  {{ include "agentspec-operator.controlPlaneUrl" . }}
+
+Port-forward for local access:
+  kubectl port-forward svc/{{ include "agentspec-operator.name" . }}-control-plane -n {{ .Release.Namespace }} 8080:80
+
 {{- if not .Values.controlPlane.apiKey }}
 REQUIRED: Create the control-plane admin key Secret:
 
+  openssl rand -hex 32  # generate a key
   kubectl create secret generic agentspec-control-plane \
     --namespace={{ .Release.Namespace }} \
     --from-literal=apiKey=<your-admin-key>
 
-Then restart the operator:
-  kubectl rollout restart deployment/agentspec-operator -n {{ .Release.Namespace }}
+Then restart both deployments:
+  kubectl rollout restart deployment/{{ include "agentspec-operator.name" . }} -n {{ .Release.Namespace }}
+  kubectl rollout restart deployment/{{ include "agentspec-operator.name" . }}-control-plane -n {{ .Release.Namespace }}
 {{- else }}
 Admin key Secret created from values.controlPlane.apiKey.
 For production, prefer creating the Secret separately to avoid
 storing credentials in Helm release history.
 {{- end }}
+
+MCP / CLI config:
+  AGENTSPEC_CONTROL_PLANE_URL=http://localhost:8080
+  AGENTSPEC_ADMIN_KEY=<same key as controlPlane.apiKey>
 
 Remote agents will appear in k9s :ao under namespace: {{ .Values.controlPlane.namespace | default "agentspec-remote" }}
 {{- end }}

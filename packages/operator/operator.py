@@ -304,7 +304,7 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
     if os.getenv("WEBHOOK_ENABLED", "false").lower() == "true":
         insecure = os.getenv("WEBHOOK_INSECURE_MODE", "false").lower() == "true"
         if insecure:
-            settings.admission.server = kopf.WebhookServer(port=9443, host="0.0.0.0")
+            settings.admission.server = kopf.WebhookServer(port=9443, host="0.0.0.0", insecure=True)
         else:
             settings.admission.server = kopf.WebhookServer(
                 port=9443,
@@ -400,9 +400,13 @@ async def inject_sidecar(body, spec, name, namespace, patch, logger, **kwargs):
 
     opa_proxy_mode = annotations.get(_OPA_PROXY_MODE_KEY) or _OPA_PROXY_MODE
 
+    # Auto-inject control plane URL when available so agents can push heartbeats
+    cp_url = os.getenv("CONTROL_PLANE_URL", "")
+
     patch_ops = build_sidecar_patch(
         spec, annotations, _INJECT_MODE,
         _OPA_ENABLED, _OPA_IMAGE, opa_proxy_mode, _OPA_POLICY_CONFIGMAP_SUFFIX,
+        control_plane_url=cp_url,
     )
 
     if not patch_ops:

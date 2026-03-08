@@ -1,0 +1,47 @@
+{{- if and .Values.webhook.enabled .Values.webhook.certManager.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "agentspec-operator.name" . }}-check-cert-manager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentspec-operator.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cert-manager-check
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      containers:
+        - name: check
+          image: bitnami/kubectl:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Checking for cert-manager..."
+              if kubectl get crd certificates.cert-manager.io >/dev/null 2>&1; then
+                echo "✓ cert-manager CRDs found"
+                if kubectl get deployment -n cert-manager cert-manager >/dev/null 2>&1; then
+                  echo "✓ cert-manager deployment found"
+                  exit 0
+                fi
+              fi
+              echo ""
+              echo "ERROR: cert-manager is required when webhook.enabled=true"
+              echo ""
+              echo "Install it with:"
+              echo "  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml"
+              echo "  kubectl wait --for=condition=Available deployment --all -n cert-manager --timeout=120s"
+              echo ""
+              echo "Or disable the webhook:"
+              echo "  --set webhook.enabled=false"
+              exit 1
+{{- end }}
