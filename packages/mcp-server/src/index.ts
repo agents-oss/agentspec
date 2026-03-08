@@ -4,7 +4,7 @@
  * POST /mcp  →  JSON-RPC 2.0 for tools/list + tools/call
  *
  * Add to Claude Code / Cursor / Windsurf:
- *   { "mcpServers": { "agentspec": { "command": "npx", "args": ["-y", "@agentspec/mcp-server"] } } }
+ *   { "mcpServers": { "agentspec": { "command": "npx", "args": ["-y", "@agentspec/mcp"] } } }
  */
 
 import http from 'http'
