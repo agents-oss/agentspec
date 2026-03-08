@@ -1,6 +1,6 @@
 {
   "name": "@agentspec/adapter-claude",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "AgentSpec agentic adapter — uses Claude API to generate complete agent code from agent.yaml",
   "author": "Sallah Kokaina <sallah.kokaina@gmail.com>",
   "license": "Apache-2.0",
