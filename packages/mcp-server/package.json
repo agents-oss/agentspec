@@ -1,5 +1,5 @@
 {
-  "name": "@agentspec/mcp-server",
+  "name": "@agentspec/mcp",
   "version": "0.1.0",
   "description": "AgentSpec MCP server — exposes validate, health, audit, scan, generate, gap, diff as MCP tools",
   "author": "Sallah Kokaina <sallah.kokaina@gmail.com>",

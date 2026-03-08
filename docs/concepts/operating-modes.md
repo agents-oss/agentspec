@@ -68,6 +68,26 @@ agent in the AgentSpec Agents view, the extension port-forwards automatically.
 
 ### MCP configuration
 
+Install the MCP server in your AI editor:
+
+**Claude Code / Cursor / Windsurf** — add to your MCP config:
+```json
+{
+  "mcpServers": {
+    "agentspec": {
+      "command": "npx",
+      "args": ["-y", "@agentspec/mcp"]
+    }
+  }
+}
+```
+
+**Claude Code** (`.claude/settings.json` or via `claude mcp add`):
+```bash
+claude mcp add agentspec -- npx -y @agentspec/mcp
+```
+
+Tool arguments for sidecar mode:
 ```json
 // agentspec_health
 { "sidecarUrl": "http://localhost:4001" }
@@ -138,6 +158,9 @@ port-forward.
 
 ### MCP configuration
 
+Same install as sidecar mode — `@agentspec/mcp` supports both modes via tool arguments.
+
+Tool arguments for operator mode:
 ```json
 // agentspec_health
 {

@@ -70,6 +70,11 @@ jobs:
           cd packages/sdk
           npm publish --access public --provenance
 
+      - name: Publish @agentspec/mcp
+        run: |
+          cd packages/mcp-server
+          npm publish --access public --provenance
+
       - name: Resolve workspace deps for adapter-claude
         run: |
           SDK_VER=$(node -p "require('./packages/sdk/package.json').version")
@@ -110,5 +115,6 @@ jobs:
           echo "**Version:** ${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- \`@agentspec/sdk@${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`@agentspec/mcp@${VERSION}\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`@agentspec/adapter-claude@${VERSION}\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`@agentspec/cli@${VERSION}\`" >> $GITHUB_STEP_SUMMARY

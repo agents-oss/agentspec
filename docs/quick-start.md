@@ -167,6 +167,20 @@ kubectl apply -f ./generated/k8s/deployment.yaml
 kubectl apply -f ./generated/k8s/service.yaml
 ```
 
+## Use AgentSpec from your AI editor (MCP)
+
+Install `@agentspec/mcp` to use AgentSpec tools directly inside Claude Code, Cursor, or Windsurf:
+
+```bash
+# Claude Code
+claude mcp add agentspec -- npx -y @agentspec/mcp
+
+# Cursor / Windsurf / any MCP-compatible editor — add to mcpServers config:
+# { "mcpServers": { "agentspec": { "command": "npx", "args": ["-y", "@agentspec/mcp"] } } }
+```
+
+See [Operating Modes](./concepts/operating-modes) for sidecar vs operator configuration.
+
 ## What to do next
 
 | I want to...                          | Go to                                                                                        |
