@@ -1,0 +1,36 @@
+{
+  "name": "@agentspec/mcp-server",
+  "version": "0.1.0",
+  "description": "AgentSpec MCP server — exposes validate, health, audit, scan, generate, gap, diff as MCP tools",
+  "author": "Sallah Kokaina <sallah.kokaina@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://agentspec.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agents-oss/agentspec.git",
+    "directory": "packages/mcp-server"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "agentspec-mcp": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --out-dir dist",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.37",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "keywords": ["agentspec", "mcp", "ai-agents", "model-context-protocol"]
+}

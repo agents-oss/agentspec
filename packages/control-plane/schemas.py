@@ -38,6 +38,7 @@ class RegisterResponse(BaseModel):
 class HeartbeatRequest(BaseModel):
     health: dict[str, Any]
     gap: dict[str, Any]
+    proof: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ── Stored health report (GET /agents/{name}/health response) ─────────────────
@@ -56,6 +57,42 @@ class StoredHealthReport(BaseModel):
     source: str
     summary: dict[str, Any]
     checks: list[dict[str, Any]]
+
+
+# ── Stored gap report (GET /agents/{name}/gap response) ──────────────────────
+
+class StoredGapReport(BaseModel):
+    """Schema for the gap report stored in heartbeat rows.
+
+    Strips unknown fields (extra='ignore') — same pattern as StoredHealthReport.
+    """
+    score: Optional[int] = None
+    grade: Optional[str] = None
+    gaps: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
+    issues: list[dict[str, Any]] = Field(default_factory=list)
+    summary: Optional[dict[str, Any]] = None
+    receivedAt: Optional[str] = None
+
+
+# ── Stored proof records (GET /agents/{name}/proof response) ─────────────────
+
+class StoredProofRecord(BaseModel):
+    """A single proof record stored from a heartbeat.
+
+    Strips unknown fields (extra='ignore') — same pattern as StoredHealthReport.
+    """
+    ruleId: str
+    verifiedAt: str
+    verifiedBy: str
+    method: str
+    expiresAt: Optional[str] = None
+
+
+class StoredProofRecords(BaseModel):
+    """Proof records stored in a heartbeat row, with metadata."""
+    records: list[StoredProofRecord] = Field(default_factory=list)
+    receivedAt: Optional[str] = None
 
 
 # ── Agent summary (list endpoint) ─────────────────────────────────────────────

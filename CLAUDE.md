@@ -248,6 +248,25 @@ To add a new check category:
 
 ---
 
+## Operating Modes
+
+Two canonical modes for querying live agent runtime data:
+
+| Mode | When | URL | Data |
+|------|------|-----|------|
+| **Sidecar** | Local dev / per-agent port-forward | `http://localhost:4001` | **Live** (fresh on each request) |
+| **Operator** | K8s cluster with Operator deployed | `https://agentspec.mycompany.com` | **Stored** (last heartbeat) |
+
+**Sidecar endpoints**: `GET /gap`, `GET /proof`, `GET /health/ready`, `GET /explore`
+**Operator endpoints**: `GET /api/v1/agents/{name}/gap`, `/proof`, `/health`
+
+Key distinction: Operator mode uses **one URL for all agents** (no per-agent port-forward).
+Port-forward is a transport detail — in sidecar mode it's per-agent (to port 4001); in operator mode it's per-cluster (to the operator service).
+
+See `docs/concepts/operating-modes.md` for the full guide, VS Code config, and MCP examples.
+
+---
+
 ## Key Files
 
 | File | Purpose |
