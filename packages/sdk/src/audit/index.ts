@@ -4,6 +4,7 @@ import { securityRules } from './rules/security.rules.js'
 import { memoryRules } from './rules/memory.rules.js'
 import { evaluationRules } from './rules/evaluation.rules.js'
 import { observabilityRules } from './rules/observability.rules.js'
+import { metadataRules } from './rules/metadata.rules.js'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -16,6 +17,7 @@ export type CompliancePack =
   | 'memory-hygiene'
   | 'evaluation-coverage'
   | 'observability'
+  | 'metadata-quality'
 
 export type EvidenceLevel = 'declarative' | 'probed' | 'behavioral' | 'external'
 
@@ -135,6 +137,7 @@ const ALL_RULES: AuditRule[] = [
   ...memoryRules,
   ...evaluationRules,
   ...observabilityRules,
+  ...metadataRules,
 ]
 
 /** Set of all valid audit rule IDs — single source of truth for validation. */

@@ -5,6 +5,7 @@ import { securityRules } from '../audit/rules/security.rules.js'
 import { memoryRules } from '../audit/rules/memory.rules.js'
 import { evaluationRules } from '../audit/rules/evaluation.rules.js'
 import { observabilityRules } from '../audit/rules/observability.rules.js'
+import { metadataRules } from '../audit/rules/metadata.rules.js'
 import type { AgentSpecManifest } from '../schema/manifest.schema.js'
 import type { ProofRecord } from '../audit/index.js'
 
@@ -14,6 +15,7 @@ const allRules = [
   ...memoryRules,
   ...evaluationRules,
   ...observabilityRules,
+  ...metadataRules,
 ]
 
 const minimalManifest: AgentSpecManifest = {
@@ -171,9 +173,9 @@ describe('evidenceLevel classification', () => {
     })
   })
 
-  it('declarative evidenceBreakdown total is 0 (no declarative rules remain)', () => {
+  it('declarative evidenceBreakdown total includes metadata-quality rules', () => {
     const report = runAudit(minimalManifest)
-    expect(report.evidenceBreakdown.declarative.total).toBe(0)
+    expect(report.evidenceBreakdown.declarative.total).toBe(2)
   })
 
   it('violations include evidenceLevel', () => {
@@ -321,5 +323,81 @@ describe('runAudit', () => {
     const report = runAudit(withSuppression)
     expect(report.suppressions.length).toBe(1)
     expect(report.suppressions[0]!.ruleId).toBe('SEC-LLM-10')
+  })
+})
+
+describe('metadata-quality rules', () => {
+  it('META-01 passes when description is set', () => {
+    const rule = metadataRules.find((r) => r.id === 'META-01')!
+    const result = rule.check(minimalManifest) // minimalManifest has description: 'A test agent'
+    expect(result.pass).toBe(true)
+  })
+
+  it('META-01 fails when description is empty', () => {
+    const noDesc: AgentSpecManifest = {
+      ...minimalManifest,
+      metadata: { ...minimalManifest.metadata, description: '   ' },
+    }
+    const rule = metadataRules.find((r) => r.id === 'META-01')!
+    const result = rule.check(noDesc)
+    expect(result.pass).toBe(false)
+    expect(result.message).toBeDefined()
+    expect(result.path).toBe('/metadata/description')
+  })
+
+  it('META-02 passes when temperature is undefined (provider default)', () => {
+    const rule = metadataRules.find((r) => r.id === 'META-02')!
+    const result = rule.check(minimalManifest) // no parameters set
+    expect(result.pass).toBe(true)
+  })
+
+  it('META-02 passes when temperature is <= 1.5', () => {
+    const safeTemp: AgentSpecManifest = {
+      ...minimalManifest,
+      spec: {
+        ...minimalManifest.spec,
+        model: { ...minimalManifest.spec.model, parameters: { temperature: 0.7 } },
+      },
+    }
+    const rule = metadataRules.find((r) => r.id === 'META-02')!
+    const result = rule.check(safeTemp)
+    expect(result.pass).toBe(true)
+  })
+
+  it('META-02 fails when temperature is > 1.5', () => {
+    const hotTemp: AgentSpecManifest = {
+      ...minimalManifest,
+      spec: {
+        ...minimalManifest.spec,
+        model: { ...minimalManifest.spec.model, parameters: { temperature: 1.8 } },
+      },
+    }
+    const rule = metadataRules.find((r) => r.id === 'META-02')!
+    const result = rule.check(hotTemp)
+    expect(result.pass).toBe(false)
+    expect(result.message).toContain('1.8')
+    expect(result.path).toBe('/spec/model/parameters/temperature')
+  })
+
+  it('runAudit with packs: [metadata-quality] returns only META- violations', () => {
+    const noDesc: AgentSpecManifest = {
+      ...minimalManifest,
+      metadata: { ...minimalManifest.metadata, description: '' },
+      spec: {
+        ...minimalManifest.spec,
+        model: { ...minimalManifest.spec.model, parameters: { temperature: 1.9 } },
+      },
+    }
+    const report = runAudit(noDesc, { packs: ['metadata-quality'] })
+    expect(report.violations.length).toBe(2)
+    for (const v of report.violations) {
+      expect(v.ruleId.startsWith('META-')).toBe(true)
+    }
+  })
+
+  it('metadata rules have declarative evidenceLevel', () => {
+    for (const rule of metadataRules) {
+      expect(rule.evidenceLevel).toBe('declarative')
+    }
   })
 })
