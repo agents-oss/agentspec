@@ -109,6 +109,7 @@ function buildModel(d: ScanDetection): AgentSpecManifest['spec']['model'] {
 function buildPrompts(d: ScanDetection): AgentSpecManifest['spec']['prompts'] {
   return {
     system: d.promptFile ? `$file:${d.promptFile}` : '$file:system.md',
+    hotReload: false,
   }
 }
 
@@ -216,7 +217,7 @@ function buildObservability(d: ScanDetection): AgentSpecManifest['spec']['observ
       ? { metrics: { backend: d.metricsBackend!, serviceName: slugify(d.name) } }
       : {}),
     ...(hasLogging
-      ? { logging: { structured: d.loggingStructured ?? true } }
+      ? { logging: { level: 'info' as const, structured: d.loggingStructured ?? true } }
       : {}),
   }
 }
