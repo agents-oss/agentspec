@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * AgentSpec MCP Server — Streamable HTTP transport (MCP spec 2025-03-26).
- * POST /mcp  →  JSON-RPC 2.0 for tools/list + tools/call
+ * AgentSpec MCP Server — supports both stdio and Streamable HTTP transports.
  *
- * Add to Claude Code / Cursor / Windsurf:
+ * stdio (default for npx / command-based MCP):
  *   { "mcpServers": { "agentspec": { "command": "npx", "args": ["-y", "@agentspec/mcp"] } } }
+ *
+ * HTTP (for persistent server):
+ *   agentspec-mcp --http
+ *   { "mcpServers": { "agentspec": { "type": "http", "url": "http://localhost:3666/mcp" } } }
  */
 
 import http from 'http'
@@ -319,19 +322,51 @@ async function handleRequest(
   res.end(JSON.stringify(response))
 }
 
+// ── stdio transport ──────────────────────────────────────────────────────────
+
+import { createInterface } from 'readline'
+
+function startStdio(): void {
+  const rl = createInterface({ input: process.stdin })
+  rl.on('line', async (line: string) => {
+    if (!line.trim()) return
+    let rpcReq: McpRequest
+    try {
+      rpcReq = JSON.parse(line) as McpRequest
+    } catch {
+      const err = mcpErr(undefined, -32700, 'Parse error')
+      process.stdout.write(JSON.stringify(err) + '\n')
+      return
+    }
+    const response = await handleRpc(rpcReq)
+    process.stdout.write(JSON.stringify(response) + '\n')
+  })
+  rl.on('close', () => process.exit(0))
+  process.stderr.write('AgentSpec MCP server running on stdio\n')
+}
+
+// ── HTTP transport ───────────────────────────────────────────────────────────
+
+function startHttp(): void {
+  const PORT = parseInt(process.env['MCP_PORT'] ?? '3666', 10)
+  const server = http.createServer((req, res) => {
+    handleRequest(req, res).catch(err => {
+      res.writeHead(500)
+      res.end(String(err))
+    })
+  })
+  server.listen(PORT, () => {
+    process.stderr.write(`AgentSpec MCP server listening on http://localhost:${PORT}/mcp\n`)
+  })
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-const PORT = parseInt(process.env['MCP_PORT'] ?? '3666', 10)
-
-const server = http.createServer((req, res) => {
-  handleRequest(req, res).catch(err => {
-    res.writeHead(500)
-    res.end(String(err))
-  })
-})
-
-server.listen(PORT, () => {
-  process.stderr.write(`AgentSpec MCP server listening on http://localhost:${PORT}/mcp\n`)
-})
+const useHttp = process.argv.includes('--http')
+if (useHttp) {
+  startHttp()
+} else {
+  startStdio()
+}
 
 export { handleRpc, callTool, TOOLS }
