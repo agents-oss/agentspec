@@ -212,3 +212,4 @@ Then add `env` to your MCP config (`.claude/settings.json` or Cursor/Windsurf eq
 | Understand the manifest fields        | [The Manifest](./concepts/manifest)                                                          |
 | Understand compliance scoring         | [Compliance](./concepts/compliance)                                                          |
 | See all CLI commands                  | [CLI Reference](./reference/cli)                                                             |
+| See all MCP tools and what to ask     | [MCP Server Reference](./reference/mcp)                                                      |
